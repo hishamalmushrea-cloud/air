@@ -233,6 +233,24 @@ class TestScenario(unittest.TestCase):
         self.assertEqual(m["safety_fraction"], 0.0)
         self.assertGreater(np.mean(np.asarray(r.factorgraph_health)), 0.7)
 
+    def test_independent_detector_lands_even_with_gps(self):
+        # A corrupt velocity source can crash the aircraft even while an
+        # absolute GNSS fix is still present, because the controller uses the
+        # (wrong) estimated velocity.  An independent detector must therefore
+        # be allowed to force a landing regardless of GPS availability.  This
+        # was the exact gap that kept bias.25 crashing in the batch study.
+        cfg = SimConfig()
+        cfg.duration = 40.0
+        cfg.gps_outage = None          # GPS stays available the whole time
+        cfg.flow_bias_ramp = 0.25
+        cfg.factorgraph_enabled = True
+        cfg.landmark_enabled = False
+        sim = Simulator(cfg)
+        r = sim.run(record=True)
+        m = safety_metrics(r, cfg.dt)
+        self.assertIn(m["safety_outcome"], ("landed_safely", "reactive_hold"))
+        self.assertEqual(m["crash"], 0.0)
+
     def test_calibrated_factor_graph_detects_large_bias(self):
         cfg = SimConfig()
         cfg.duration = 40.0

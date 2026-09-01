@@ -56,10 +56,13 @@ class SimConfig:
         self.landmark_hz = 5.0
 
         # Principled factor-graph consistency monitor (IMU+flow+GPS+landmarks,
-        # jointly optimised with a robust kernel).  Currently opt-in for
-        # analysis: the live safety signal stays on the proven landmark
-        # detector while we characterise when the graph residual is reliable.
-        self.factorgraph_enabled = False
+        # jointly optimised with a robust kernel).  Now enabled by default as a
+        # second, structurally independent safety opinion alongside the
+        # landmark detector.  Its health feeds a dedicated safety path that can
+        # force a landing even while GPS is still available, which closes the
+        # gap where a corrupt velocity source drove the aircraft into the
+        # ground during a GNSS-aided phase.  See research-brief-06.
+        self.factorgraph_enabled = True
         self.factorgraph_hz = 2.0
         self.factorgraph_kwargs = {}
 
@@ -196,6 +199,10 @@ class Simulator:
         self._fg_calibrated = False
         self._fg_baseline = None
         self._fg_calibration_samples = []
+        # The factor graph's health is not meaningful until its baseline is
+        # calibrated from trusted GNSS data, so the safety layer must not use
+        # it before that point.
+        self.factorgraph_health_trusted = False
 
     def _make_vehicle(self, cfg: SimConfig) -> Quadrotor:
         return Quadrotor(**cfg.vehicle_kwargs)
@@ -286,9 +293,28 @@ class Simulator:
 
             # ---- uncertainty-aware safety decision (from last EKF state) ----
             gps_ok = self._gps_available()
+            # Independent-detector health: min of the *structurally independent*
+            # monitors (landmark geometry + factor graph).  This is the signal
+            # that is allowed to force a landing even when GPS is still up,
+            # because a corrupt velocity-aiding source drives the controller
+            # and can crash the aircraft regardless of an absolute fix.
+            # The factor graph is only trusted once its startup calibration has
+            # finished; before that its residual maps to a low, meaningless
+            # health and would cause a false hold.
+            det_health = None
+            fg_health = float(self._factorgraph_health) \
+                if self.factorgraph_health_trusted else 1.0
+            det_parts = []
+            if self.cfg.landmark_enabled:
+                det_parts.append(float(self._landmark_score))
+            if self.cfg.factorgraph_enabled:
+                det_parts.append(fg_health)
+            if det_parts:
+                det_health = float(min(det_parts))
             dec = self.safety.update(self.ekf, self.sensors,
                                      self.vehicle.altitude, dt, gps_ok,
-                                     flow_health=self._effective_flow_health)
+                                     flow_health=self._effective_flow_health,
+                                     detector_health=det_health)
             self._last_unc_std = dec.uncertainty_std
 
             # ---- mission desired state using *estimated* position ----
@@ -367,10 +393,14 @@ class Simulator:
                     # optical-flow confidence / feature quality, noisy).
                     health = float(self.sensors.flow_health)
                     # Independent landmark consistency is the *primary* second
-                    # opinion; the factor graph is the principled version of
-                    # the same idea and replaces it when enabled.
-                    if self.cfg.factorgraph_enabled:
-                        health = float(min(health, self._factorgraph_health))
+                    # opinion for the velocity measurement itself.
+                    # The factor graph is deliberately NOT folded into this
+                    # instantaneous flow health: it runs at 2 Hz and its
+                    # healthy residual can dip slightly during fast turns.  It
+                    # is instead fed to the dedicated independent-detector
+                    # safety path, where a wide margin and a longer grace make
+                    # it both decisive on real faults and silent on healthy
+                    # manouevers.
                     if self.cfg.landmark_enabled:
                         health = float(min(health, self._landmark_score))
                     if self.cfg.integrity_monitor_enabled:
@@ -447,6 +477,7 @@ class Simulator:
                             self._fg_baseline = float(samples[idx])
                             self.factorgraph.baseline_residual = self._fg_baseline
                             self._fg_calibrated = True
+                            self.factorgraph_health_trusted = True
                 fg_acc = 0.0
 
             if gps_acc >= gps_period - 1e-9:

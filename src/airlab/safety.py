@@ -36,9 +36,23 @@ class SafetyConfig:
         self.flow_health_warn = 0.70
         self.flow_health_fail = 0.40
 
+        # Independent *detector* health (landmark factor-graph / geometry
+        # monitor). This is a different kind of signal: it does NOT rely on the
+        # EKF's own state, so even when GPS is present a confident detector
+        # fault means the velocity-aiding source is *convincing but wrong* and
+        # must be refused. Land/hold even with GPS up.
+        # 0.55 is deliberately conservative: a healthy FR (fast turn) can dip
+        # to ~0.58 for a fraction of a second, while a real fault lands at
+        # ~0.04 for seconds.  Wide margin = no false hold; deep margin = still
+        # decisive on the genuine fault.
+        self.detector_health_warn = 0.55
+        self.detector_health_fail = 0.25
+
         # Time the condition must persist before reacting (s).
-        self.grace_warn_s = 1.0
-        self.grace_fail_s = 2.0
+        self.grace_flow_warn_s = 1.0
+        self.grace_flow_fail_s = 2.0
+        self.grace_detector_warn_s = 1.5
+        self.grace_detector_fail_s = 1.0
 
         # Landing behaviour
         self.land_speed = 0.7            # descent rate (m/s)
@@ -124,6 +138,8 @@ class SafetyMonitor:
         self.reason = "nominal"
         self._warn_time = 0.0
         self._fail_time = 0.0
+        self._det_warn_time = 0.0
+        self._det_fail_time = 0.0
         self._unc_smooth = 0.0
 
     def update(
@@ -134,12 +150,15 @@ class SafetyMonitor:
         dt: float,
         gps_available: bool,
         flow_health: float | None = None,
+        detector_health: float | None = None,
     ) -> SafetyDecision:
         # Horizontal uncertainty from the EKF covariance (position 0..1).
         P_h = ekf.P[0, 0] + ekf.P[1, 1]
         unc = float(np.sqrt(max(P_h, 0.0)))
         self._unc_smooth = 0.9 * self._unc_smooth + 0.1 * unc if dt > 0 else unc
         health = float(sensors.flow_health if flow_health is None else flow_health)
+        det_health = (float(np.clip(detector_health, 0.0, 1.0))
+                      if detector_health is not None else 1.0)
 
         dec = SafetyDecision()
         dec.uncertainty_std = self._unc_smooth
@@ -167,15 +186,24 @@ class SafetyMonitor:
         elif health < self.cfg.flow_health_fail and not gps_available:
             fail_reason = "velocity_aiding_failed_without_gps"
         elif health < self.cfg.flow_health_fail and gps_available:
-            # Even with GPS present, a persistent corrupt velocity source is a
-            # red flag; but we have a little more room.
+            # Flow self-report is low but GPS is up: do NOT land on the
+            # self-report alone (it can be noisy).  Only an *independent*
+            # detector can safely override a GPS-aided state.
             fail_reason = None
+
+        det_fail_reason = None
+        if det_health < self.cfg.detector_health_fail:
+            det_fail_reason = "independent_detector_fault"
 
         warn_reason = None
         if self._unc_smooth > self.cfg.pos_std_hold:
             warn_reason = "position_uncertainty_elevated"
         elif health < self.cfg.flow_health_warn and not gps_available:
             warn_reason = "velocity_aiding_degraded_without_gps"
+
+        det_warn_reason = None
+        if det_health < self.cfg.detector_health_warn:
+            det_warn_reason = "independent_detector_degraded"
 
         # ---- counting grace periods ----
         if fail_reason:
@@ -186,23 +214,40 @@ class SafetyMonitor:
             self._warn_time += dt
         else:
             self._warn_time = 0.0
+        if det_fail_reason:
+            self._det_fail_time += dt
+        else:
+            self._det_fail_time = 0.0
+        if det_warn_reason and not det_fail_reason:
+            self._det_warn_time += dt
+        else:
+            self._det_warn_time = 0.0
 
         # ---- state machine ----
+        # An independent-detector fault is a hard signal: land even if GPS is
+        # still healthy, because the corrupt velocity-aiding source is driving
+        # the controller and can crash the vehicle anyway.
+        det_land = self._det_fail_time >= self.cfg.grace_detector_fail_s
+        det_hold = self._det_warn_time >= self.cfg.grace_detector_warn_s
+
         if state == CRUISE:
             # Once uncertainty is already too high, land regardless of health.
-            if self._fail_time >= self.cfg.grace_fail_s or self._unc_smooth > self.cfg.pos_std_land:
+            if self._fail_time >= self.cfg.grace_flow_fail_s or \
+               self._unc_smooth > self.cfg.pos_std_land or det_land:
                 state = LAND
-                self.reason = fail_reason or "uncertainty_critical"
-            elif self._warn_time >= self.cfg.grace_warn_s or \
-                 (health < self.cfg.flow_health_warn and not gps_available):
+                self.reason = det_fail_reason or fail_reason or "uncertainty_critical"
+            elif self._warn_time >= self.cfg.grace_flow_warn_s or \
+                 (health < self.cfg.flow_health_warn and not gps_available) or det_hold:
                 state = HOLD
-                self.reason = warn_reason or "degraded_navigation"
+                self.reason = det_warn_reason or warn_reason or "degraded_navigation"
         elif state == HOLD:
             # A hold buys time but should not become an indefinite drift.
-            if self._fail_time >= self.cfg.grace_fail_s or self._unc_smooth > self.cfg.pos_std_land:
+            if self._fail_time >= self.cfg.grace_flow_fail_s or \
+               self._unc_smooth > self.cfg.pos_std_land or det_land:
                 state = LAND
-                self.reason = fail_reason or "hold_uncertainty_critical"
-            elif gps_available and health >= self.cfg.flow_health_warn and self._unc_smooth < self.cfg.pos_std_hold:
+                self.reason = det_fail_reason or fail_reason or "hold_uncertainty_critical"
+            elif not det_hold and gps_available and health >= self.cfg.flow_health_warn \
+                 and self._unc_smooth < self.cfg.pos_std_hold and det_health >= self.cfg.detector_health_warn:
                 # recovered
                 state = CRUISE
                 self.reason = "recovered"

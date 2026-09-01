@@ -134,17 +134,15 @@ sensor-fusion layer is designed to close.
 
 ## Roadmap (current thinking)
 
-The repo is at **Stage 7** of the longer research program. The next stages in
+The repo is at **Stage 8** of the longer research program. The next stages in
 order of value:
 
-1. **Larger statistical live study (n≥10)** — before promoting the factor graph
-   to live, measure a reliable crash-vs-detector curve per fault/seed.
-2. **Faster FG safety reaction** — couple FG health directly to the LAND trigger
-   so a detected fault converts to a *land*, not only a transient HOLD.
-3. **Consensus of two monitors** — run the landmark detector as primary and the
-   calibrated factor graph as a cross-check (two structurally different
-   opinions).
-4. **Richer landmark geometry** — higher rate, landmark persistence and a
+1. **Two-monitor consensus is now live** — the landmark detector and the
+   calibrated factor graph both feed a dedicated independent-detector safety
+   path that can force a landing **even while GNSS is still available**.  Next
+   we tune the margins across a wider fault/seed grid (n≥30) and choose a final
+   consensus policy (AND/OR/weighted).
+2. **Richer landmark geometry** — higher rate, landmark persistence and a
    learned "trust this frame" model.
 3. **Physics fidelity v4** — motor/spin dynamics, propeller model, thermal,
    ground effect.
@@ -188,14 +186,26 @@ healthy missions still finish without false alarms.
 For the research-grade version, `factorgraph.py` builds a small sliding-window
 factor graph (IMU + flow + GPS + landmarks) with a Cauchy robust kernel, an IMU
 preintegrator, a startup baseline calibration, and its **own in-graph IMU
-accel-bias estimate** (so it no longer borrows the flow-fed EKF bias).  It now
-behaves as a **valid calibrated detector in isolation** (healthy → no false
-alarm, an obvious fault → health ~0.05) and is tested via
-`run_factorgraph_live.py`.  Critically, the bias prior must be strong enough
-(`bias_reg` ≥ 0.2) or the graph will *absorb the flow fault into its bias* and
-fail to detect it.  It is still **opt-in** because across random seeds at the
-hardest fault it does not yet beat seed noise; the landmark detector remains the
-live signal (see `docs/research-brief-06.md`).
+accel-bias estimate** (so it no longer borrows the flow-fed EKF bias).  It is
+now **on by default as a second independent detector** alongside the landmark
+monitor.
+
+Two changes made it live-worthy:
+
+1. **Strong bias prior** (`bias_reg` ≥ 0.2).  A weak prior lets the graph
+   *absorb the flow fault into its own bias* and then self-confirm the corrupt
+   measurement — it must be forced to reject the outlier instead of fitting it.
+2. **Dedicated independent-detector safety path.**  The previous safety layer
+   ignored a low velocity-health signal while GNSS was still available ("we have
+   a little more room").  That was the exact gap that let a corrupt flow source
+   drive the aircraft into the ground during a GNSS-aided phase.  The safety
+   layer now has a separate `detector_health` input that can force `LAND` even
+   with GPS up, with a wide margin (warn < 0.55, fail < 0.25) and long grace to
+   stay silent on healthy fast turns.
+
+The n=10 live ablation (`docs/research-brief-07.md`) shows the FG alone
+converts bias.25 crashes from 0.024 → **0.000** (10/10 `landed_safely`) and
+detects even bias.1, while healthy remains 10/10 `completed`.
 
 ---
 
