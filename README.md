@@ -135,26 +135,25 @@ sensor-fusion layer is designed to close.
 
 ## Roadmap (current thinking)
 
-The repo is at **Stage 17** of the longer research program. The next stages in
+The repo is at **Stage 18** of the longer research program. The next stages in
 order of value:
 
-1. **Frame trust is now discriminated end-to-end.**  We injected a first-class
-   **degenerate-parallax camera** failure (many landmarks in a tight angular
-   cone, e.g. a close wall): `--landmark-cluster 6-22`.  Raw count stays high,
-   so the count-based veto treats it as credible and **false-lands a healthy
-   mission 0.748**; the angular-diversity trust veto
-   (`adaptive_veto_trust`) **recognises the degenerate geometry and stays quiet
-   (0.000 false land, in-bounds 1.000)** while still landing on real faults
-   (bias.25 0.844, crash 0.000).  This required also gating the landmark score's
-   fold into velocity-aiding flow health behind the same trust floor, otherwise
-   the cluster leaked a false `velocity_aiding_failed_without_gps` during a GPS
-   outage and bypassed the consensus entirely
-   (`docs/research-brief-16.md`).
-2. **Outage regression is clean:** `adaptive_veto_trust == adaptive_veto` on
-   every real fault (scale1.5 0.765, bias.25 0.844, crash 0) and healthy+outage
-   0.000, so the trust floor is a strict improvement, not a regression.
-3. **Learned per-frame confidence** on top of the analytic trust; then sparse
-   factor-graph outage and n≥30 for headline crash numbers.
+1. **Frame trust is now learned, not hand-set.**  `FrameTrustLearner`
+   (`src/airlab/trust.py`) gathers the sampled camera's RMS angular spread +
+   observed landmark count during the first 6 s of a healthy run, then scores
+   every later frame against that learned distribution.  It replaces the
+   hand-set `count/3` and `rms/1.2` with a self-calibrated reference (e.g.
+   scen1: `ref=1.646 rad, count_ref=6.00`), and it **never uses the detector's
+   own verdict**, so a faulty detector cannot down-weight itself
+   (`docs/research-brief-17.md`).
+2. **Degenerate-parallax discrimination is preserved.**  With the learned model,
+   `adaptive_veto_trust` still stays healthy under a high-count / low-diversity
+   camera (0.000 false land) while `adaptive_veto` false-lands 0.748; it still
+   lands real faults (bias.25 0.844, crash 0).  Outage regression remains
+   identical to `adaptive_veto`.  `adaptive_veto_trust` is now the recommended
+   mode for feature-degenerate flight.
+3. **Sparse factor-graph outage** experiment (under-determined graph as a
+   first-class failure), then n≥30 for headline crash numbers.
 2. **Mission-aware RTL is opt-in and honestly limited.**  A ramping corrupt
    velocity source corrupts navigation before detection, so RTL is a guess
    there.  The useful design-in pieces (early source rejection, GPS-only state

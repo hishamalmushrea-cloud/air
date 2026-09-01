@@ -376,6 +376,21 @@ class TestScenario(unittest.TestCase):
         sim._landmark_obs_count = 4
         self.assertGreater(sim._detector_trust("landmark"), 0.7)
 
+    def test_frame_trust_learner_calibrates_from_startup_and_detects_cluster(self):
+        # Feed a healthy startup distribution (well-spread ~1.0 rad) then score
+        # a degenerate frame (large count, tight cone ~0.04 rad).  The learned
+        # model must give the healthy frame high trust and the cluster low.
+        from airlab.trust import FrameTrustLearner
+        lm = FrameTrustLearner("landmark")
+        rng = np.random.default_rng(7)
+        for _ in range(20):
+            lm.calibrate(float(rng.normal(1.0, 0.05)), 5)
+        self.assertTrue(lm.calibrated)
+        self.assertGreater(lm.trust(1.05, 5), 0.7)      # healthy frame
+        self.assertLess(lm.trust(0.04, 6), 0.35)        # degenerate but many
+        # count reference should be learned, not hard-coded /3.
+        self.assertAlmostEqual(lm.count_ref, 5.0, places=1)
+
     def test_trust_veto_does_not_false_land_on_degenerate_parallax(self):
         # A camera that reports *many* features in a tiny angular cone (close
         # wall / low parallax) has high count but low angular-diversity trust.

@@ -23,6 +23,7 @@ from .safety import (SafetyMonitor, SafetyConfig, CRUISE, HOLD, LAND, LANDED,
 from .energy import PowerModel
 from .landmarks import LandmarkField, LandmarkConsistency
 from .factorgraph import SlidingFactorGraph, build_keyframe, ImuPreintegrator
+from .trust import FrameTrustLearner
 
 
 def _cone_bearing(axis: np.ndarray, a_rad: float, b_rad: float) -> np.ndarray:
@@ -90,6 +91,12 @@ class SimConfig:
         # thin.  This is the fault mode that differentiates adaptive_veto_trust.
         self.landmark_cluster = None  # (start, end) seconds
         self.landmark_cluster_cone = 0.04  # rad: half-angle of the degenerate cone
+
+        # Self-calibrated per-frame trust: collect the frame-informativeness
+        # distribution on a healthy startup, then score every later frame
+        # against it.  Replaces hand-set count/3 and rms/1.2 constants.
+        self.trust_learn = True
+        self.trust_calibrate_s = 6.0   # healthy startup window (s)
 
         # Principled factor-graph consistency monitor (IMU+flow+GPS+landmarks,
         # jointly optimised with a robust kernel).  Now enabled by default as a
@@ -279,6 +286,11 @@ class Simulator:
         # calibrated from trusted GNSS data, so the safety layer must not use
         # it before that point.
         self.factorgraph_health_trusted = False
+        # Self-calibrated per-frame informative-frame trust (landmark /
+        # factor-graph).  Learns the healthy startup distribution instead of
+        # using hand-set count/3 and rms/1.2 constants.
+        self._lm_trust = FrameTrustLearner("landmark")
+        self._fg_trust = FrameTrustLearner("factorgraph")
         # Detector-triggered source rejection: once the independent monitors
         # agree the velocity-aiding source is corrupt, stop feeding it to the
         # EKF.  This is what makes a later RTL safe — navigation continues on
@@ -424,15 +436,13 @@ class Simulator:
             n = self._landmark_obs_count
             if n < 2 or dirs.shape[0] < 2:
                 return 0.0
-            ang = []
-            for i in range(min(n, dirs.shape[0])):
-                for j in range(i + 1, min(n, dirs.shape[0])):
-                    d = float(np.clip(np.dot(dirs[i], dirs[j]), -1.0, 1.0))
-                    ang.append(float(np.arccos(d)))
-            if not ang:
-                return 0.0
-            rms = float(np.sqrt(np.mean(np.square(ang))))
-            diversity = float(np.clip(rms / 1.2, 0.0, 1.0))  # ~69 deg
+            rms = self._landmark_rms(dirs)
+            if self.cfg.trust_learn and self._lm_trust.calibrated:
+                tr = self._lm_trust.trust(rms, n)
+                if tr is not None:
+                    return tr
+            # Analytic fallback before/if learning is unavailable: ~69 deg.
+            diversity = float(np.clip(rms / 1.2, 0.0, 1.0))
             count_frac = float(np.clip(n / 3.0, 0.0, 1.0))
             return float(count_frac * diversity)
         if kind == "factorgraph":
@@ -441,8 +451,27 @@ class Simulator:
             comp = self._fg_flow_components
             base = float(np.clip(comp / max(self.factorgraph.min_keyframes, 1), 0.0, 1.0))
             conv = 1.0 if self._fg_converged else 0.5
+            # FG conditioning is already a well-defined structural metric (does
+            # the graph have enough factors?), and its reference value is 1.0 by
+            # construction, so we keep it analytic rather than learn a baseline
+            # from startup samples (which are mostly base=0 while the graph
+            # warms up and would weaken the sparse-graph penalty).
             return float(base * conv)
         return 1.0
+
+    @staticmethod
+    def _landmark_rms(dirs: np.ndarray) -> float:
+        """RMS pairwise angular separation (rad) of the observed body dirs."""
+        dirs = np.asarray(dirs, dtype=float)
+        n = dirs.shape[0]
+        if n < 2:
+            return 0.0
+        ang = []
+        for i in range(n):
+            for j in range(i + 1, n):
+                d = float(np.clip(np.dot(dirs[i], dirs[j]), -1.0, 1.0))
+                ang.append(float(np.arccos(d)))
+        return float(np.sqrt(np.mean(np.square(ang)))) if ang else 0.0
 
     def _consensus_weights(self, n: int) -> np.ndarray:
         """Per-detector availability weights (landmark, factorgraph)."""
@@ -800,6 +829,15 @@ class Simulator:
                 self._landmark_score = self.landmark_consistency.evaluate(
                     ids, dirs, self.ekf.pos, self.ekf.rpy)
                 self._landmark_residual = self.landmark_consistency.residual
+                # Learn the healthy per-frame distribution before any fault /
+                # feature-degeneracy window opens.  Only exclude the frame if we
+                # are *inside* an outage/cluster window right now.
+                in_out = lm_out is not None and lm_out[0] <= self.time < lm_out[1]
+                in_cluster = (lm_cluster is not None and
+                              lm_cluster[0] <= self.time < lm_cluster[1])
+                if (self.cfg.trust_learn and len(ids) >= 2 and not in_out and
+                        not in_cluster and self.time < self.cfg.trust_calibrate_s):
+                    self._lm_trust.calibrate(self._landmark_rms(dirs), len(ids))
                 lm_acc = 0.0
 
             # Factor-graph consistency monitor.  Every keyframe we push raw
@@ -854,6 +892,9 @@ class Simulator:
                     # robust high percentile makes a healthy flight map to
                     # health~1.0 while a real fault (residual >> floor) is
                     # still clearly detected.
+                    # FG conditioning is kept analytic (see _detector_trust);
+                    # no per-frame learning here.
+
                     if not self._fg_calibrated and gps_ok:
                         self._fg_calibration_samples.append(fg_info["flow_residual"])
                         if len(self._fg_calibration_samples) >= 6:
