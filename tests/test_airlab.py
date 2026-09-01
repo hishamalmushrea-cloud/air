@@ -297,6 +297,20 @@ class TestScenario(unittest.TestCase):
         cfg.detector_consensus = "geom"
         self.assertAlmostEqual(sim._combine_detectors(parts), np.sqrt(0.18))
 
+    def test_adaptive_consensus_escalates_only_when_degraded(self):
+        cfg = SimConfig()
+        sim = Simulator(cfg)
+        cfg.detector_consensus = "adaptive"
+        # Soft consensus still vouches for the sensors => return soft (no
+        # needless aggressive landing on a mild, survivable fault).
+        high = sim._combine_detectors([0.8, 0.9])
+        self.assertGreater(high, 0.8)
+        # A deep fault makes even the soft consensus fall below the warn line,
+        # so we escalate to the worst-of opinion (decisive fail).
+        deep = sim._combine_detectors([0.2, 0.9])
+        self.assertLess(deep, 0.25)
+        self.assertAlmostEqual(deep, 0.2)
+
     def test_rtl_requires_gps(self):
         # Return-to-base must NOT be attempted when there is no absolute fix:
         # without GPS the aircraft does not know where base is in world frame,

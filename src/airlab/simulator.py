@@ -69,10 +69,17 @@ class SimConfig:
 
         # How to combine the independent detectors into a single
         # ``detector_health`` for the safety layer:
-        #   "min"  -> worst-of (OR): any bad detector triggers  (most conservative)
-        #   "max"  -> best-of (AND): both must agree a fault exists (least alarm)
-        #   "geom" -> geometric mean (soft consensus)
-        self.detector_consensus = "min"
+        #   "min"     -> worst-of (OR): any bad detector triggers  (most conservative)
+        #   "max"     -> best-of (AND): both must agree a fault exists (least alarm)
+        #   "geom"    -> geometric mean (soft consensus)
+        #   "adaptive"-> soft while it vouches for the sensors, escalate to
+        #                worst-of once even the soft consensus drops below the
+        #                detector warning line.
+        # ``adaptive`` is the default: it keeps `min`-level crash protection on
+        # deep faults (0.841 vs 0.845 landed at bias.25) while cutting the
+        # benign-fault mission cost by ~33% (0.142 vs 0.212).  See
+        # research-brief-10.
+        self.detector_consensus = "adaptive"
 
         # Mission-aware emergency response: instead of always landing where the
         # fault is detected, try to return to base first if the battery and
@@ -233,7 +240,17 @@ class Simulator:
         self._flow_reject_reason = "none"
 
     def _combine_detectors(self, parts: list[float]) -> float:
-        """Combine independent detector healths using the consensus policy."""
+        """Combine independent detector healths using the consensus policy.
+
+        "min"   -> worst-of (OR): any bad detector triggers (most conservative)
+        "max"   -> best-of (AND): both must agree a fault exists (least alarm)
+        "geom"  -> geometric mean (soft consensus)
+        "adaptive" -> soft consensus while it still vouches for the sensors;
+                  the moment even the soft consensus drops below the detector
+                  warn threshold, escalate to the worst-of opinion.  This keeps
+                  mild (survivable) faults from forcing a needless landing while
+                  still escalating decisively on deep (diverging) faults.
+        """
         if not parts:
             return 1.0
         a = np.asarray(parts, dtype=float)
@@ -242,6 +259,11 @@ class Simulator:
             return float(np.max(a))
         if mode == "geom":           # soft consensus
             return float(np.sqrt(np.prod(np.clip(a, 1e-9, 1.0))))
+        if mode == "adaptive":
+            soft = float(np.sqrt(np.prod(np.clip(a, 1e-9, 1.0))))
+            if soft >= self.safety.cfg.detector_health_warn:
+                return soft
+            return float(np.min(a))  # escalate to worst-of once soft fails
         return float(np.min(a))      # "min" / default: OR, worst-of
 
     def _make_vehicle(self, cfg: SimConfig) -> Quadrotor:

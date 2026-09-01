@@ -68,8 +68,9 @@ class Scenario:
     # Principled factor-graph independent monitor
     factorgraph_enabled: bool = True
 
-    # Consensus policy between the independent detectors ("min" / "max" / "geom")
-    detector_consensus: str = "min"
+    # Consensus policy between the independent detectors
+    # ("min" / "max" / "geom" / "adaptive"); adaptive is the recommended default.
+    detector_consensus: str = "adaptive"
 
     # Mission-aware emergency response (return-to-base vs land-now)
     mission_aware: bool = False

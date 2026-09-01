@@ -548,6 +548,7 @@ def consensus_study(
             ("min",   True, True, "min"),
             ("max",   True, True, "max"),
             ("geom",  True, True, "geom"),
+            ("adaptive", True, True, "adaptive"),
         ]
     rows = []
     for fault in faults:
@@ -623,6 +624,7 @@ def consensus_main(argv=None) -> int:
         "min": ("min", True, True, "min"),
         "max": ("max", True, True, "max"),
         "geom": ("geom", True, True, "geom"),
+        "adaptive": ("adaptive", True, True, "adaptive"),
     }
     unknown_p = [p for p in pol_names if p not in _policies]
     if unknown_p:
