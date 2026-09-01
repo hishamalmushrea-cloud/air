@@ -312,6 +312,44 @@ class TestScenario(unittest.TestCase):
         # hard reaction on weak evidence.
         self.assertGreater(weighted_low_info, np.sqrt(0.18))
 
+    def test_weighted_consensus_ignores_thin_detector_when_healthy(self):
+        # Guardrail: with the landmark detector feature-poor (outage) and a
+        # healthy factor graph, the availability-weighted consensus must NOT be
+        # dragged down by the stale/unknown landmark opinion.  The thin
+        # detector should carry a weak voice, not force a hard reaction.
+        cfg = SimConfig()
+        cfg.duration = 40.0
+        cfg.gps_outage = (12.0, 24.0)
+        cfg.landmark_outage = (10.0, 35.0)
+        cfg.detector_consensus = "adaptive_weighted"
+        cfg.factorgraph_enabled = True
+        cfg.landmark_enabled = True
+        sim = Simulator(cfg)
+        r = sim.run(record=True)
+        m = safety_metrics(r, cfg.dt)
+        self.assertEqual(m["safety_outcome"], "completed")
+        self.assertEqual(m["safety_fraction"], 0.0)
+
+    def test_adaptive_veto_keeps_healthy_veto_during_outage(self):
+        # A feature-poor camera keeps its last healthy score.  A symmetric
+        # availability weight would down-weight it and let a noisier factor
+        # graph false-land a healthy mission.  adaptive_veto must NOT do that:
+        # thin data may not trigger, but the healthy (stale) detector keeps
+        # its veto.
+        cfg = SimConfig()
+        sim = Simulator(cfg)
+        cfg.detector_consensus = "adaptive_veto"
+        sim._landmark_obs_count = 0        # landmark feature-poor
+        sim._fg_flow_components = 4        # factor graph well-determined
+        sim._fg_converged = True
+        # landmark stale-high, factor graph dipped below warn but not fail.
+        consensus = sim._combine_detectors([0.95, 0.50])
+        # The healthy landmark must veto; do not escalate to warn-level hold.
+        self.assertGreater(consensus, 0.65)
+        # But a credible (well-data) low factor graph DOES escalate.
+        low = sim._combine_detectors([0.95, 0.20])
+        self.assertLess(low, 0.30)
+
     def test_adaptive_consensus_escalates_only_when_degraded(self):
         cfg = SimConfig()
         sim = Simulator(cfg)

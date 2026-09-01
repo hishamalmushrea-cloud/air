@@ -552,6 +552,7 @@ def consensus_study(
             ("adaptive", True, True, "adaptive"),
             ("weighted", True, True, "weighted"),
             ("adaptive_weighted", True, True, "adaptive_weighted"),
+            ("adaptive_veto", True, True, "adaptive_veto"),
         ]
     rows = []
     for fault in faults:
@@ -566,7 +567,8 @@ def consensus_study(
                                  "factorgraph_enabled": fg_on,
                                  "detector_consensus": consensus,
                                  "adaptive_escalate": adaptive_escalate,
-                                 "mission_aware": mission_aware})
+                                 "mission_aware": mission_aware,
+                                 "landmark_outage": fault.get("landmark_outage")})
                 scenarios.append(s2)
             metrics_list = []
             outcomes = []
@@ -633,6 +635,7 @@ def consensus_main(argv=None) -> int:
         "adaptive": ("adaptive", True, True, "adaptive"),
         "weighted": ("weighted", True, True, "weighted"),
         "adaptive_weighted": ("adaptive_weighted", True, True, "adaptive_weighted"),
+        "adaptive_veto": ("adaptive_veto", True, True, "adaptive_veto"),
     }
     unknown_p = [p for p in pol_names if p not in _policies]
     if unknown_p:

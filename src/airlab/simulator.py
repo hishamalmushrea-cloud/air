@@ -55,6 +55,11 @@ class SimConfig:
         # corrupt velocity-aiding source that the EKF would otherwise trust.
         self.landmark_enabled = True
         self.landmark_hz = 5.0
+        # Window during which the camera reports no/new landmarks (feature-poor
+        # flight).  The landmark score holds its last opinion, but the
+        # availability weight drops toward 0 — this is how we exercise the
+        # measurement-availability guardrail.
+        self.landmark_outage = None   # (start, end) seconds
 
         # Principled factor-graph consistency monitor (IMU+flow+GPS+landmarks,
         # jointly optimised with a robust kernel).  Now enabled by default as a
@@ -76,6 +81,12 @@ class SimConfig:
         #                consensus: a detector with little local data (few
         #                landmarks, under-determined graph) is down-weighted,
         #                so it cannot force a decision on thin evidence.
+        #   "adaptive_veto" -> symmetric-availability guardrail: a detector
+        #                with thin data may NOT *trigger* escalation, but it
+        #                KEEPS its full healthy voice to veto one (this avoids
+        #                a stale-healthy landmark being down-weighted and
+        #                letting a noisier factor graph false-land a healthy
+        #                mission during a camera outage).
         # ``adaptive`` is the default: it keeps `min`-level crash protection on
         # deep faults (0.841 vs 0.845 landed at bias.25) while cutting the
         # benign-fault mission cost by ~33% (0.142 vs 0.212).  See
@@ -275,11 +286,12 @@ class Simulator:
         "min"   -> worst-of (OR): any bad detector triggers (most conservative)
         "max"   -> best-of (AND): both must agree a fault exists (least alarm)
         "geom"  -> geometric mean (soft consensus)
-        "adaptive" -> soft consensus while it still vouches for the sensors;
-                  the moment even the soft consensus drops below the detector
-                  warn threshold, escalate to the worst-of opinion.  This keeps
-                  mild (survivable) faults from forcing a needless landing while
-                  still escalating decisively on deep (diverging) faults.
+        #   "adaptive" -> soft consensus while it still vouches for the sensors;
+        #                the moment even the soft consensus drops below the
+        #                detector warn threshold, escalate to the worst-of
+        #                opinion.  This keeps mild (survivable) faults from
+        #                forcing a needless landing while still escalating
+        #                decisively on deep (diverging) faults.
         "weighted" / adaptive soft uses a *measured-availability weighted*
         geometric mean: a detector with little local data (few landmarks, an
         under-determined graph) is down-weighted so it cannot force a decision
@@ -291,7 +303,7 @@ class Simulator:
         mode = self.cfg.detector_consensus
         if mode == "max":            # AND: both must agree there is a fault
             return float(np.max(a))
-        if mode in ("geom", "adaptive", "weighted", "adaptive_weighted"):
+        if mode in ("geom", "adaptive", "weighted", "adaptive_weighted", "adaptive_veto"):
             w = self._consensus_weights(len(parts))
             soft_uw = float(np.sqrt(np.prod(np.clip(a, 1e-9, 1.0))))
             soft_w = self._weighted_geom(a, w)
@@ -299,6 +311,8 @@ class Simulator:
                 return soft_uw
             if mode == "weighted":
                 return soft_w
+            if mode == "adaptive_veto":
+                return self._adaptive_veto(a, w, soft_uw)
             # adaptive (unweighted soft) / adaptive_weighted (availability-
             # weighted soft): escalate to worst-of when the soft opinion fails.
             soft = soft_uw if mode == "adaptive" else soft_w
@@ -306,6 +320,31 @@ class Simulator:
                 return soft
             return float(np.min(a))
         return float(np.min(a))      # "min" / default: OR, worst-of
+
+    def _adaptive_veto(self, a: np.ndarray, w: np.ndarray, soft: float) -> float:
+        """Asymmetric guardrail: thin data can trigger, but cannot veto.
+
+        Escalation may only be *caused* by a detector that (a) is low and
+        (b) had enough data to be credible.  A healthy-but-stale detector (e.g.
+        a camera in a feature-poor window retaining its last good score) keeps
+        its full voice and can veto escalation.  If no detector is both low and
+        credible, we remain at the soft/healthy opinion (do not react on
+        unknown).
+        """
+        escalate = self.safety.cfg.adaptive_escalate
+        warn = self.safety.cfg.detector_health_warn
+        if soft >= escalate:
+            return soft
+        credible_low = [a[i] for i in range(len(a))
+                        if a[i] < warn and w[i] >= 0.5]
+        if not credible_low:
+            # Only thin detectors were low -> unknown, not bad.  Keep the best
+            # available healthy voice (do not let a thin detector force a hold).
+            healthy = [a[i] for i in range(len(a)) if w[i] >= 0.5]
+            if healthy:
+                return float(max(healthy))
+            return float(warn)   # truly fully blind: be neutral/cautious
+        return float(min(min(credible_low), soft))
 
     def _consensus_weights(self, n: int) -> np.ndarray:
         """Per-detector availability weights (landmark, factorgraph)."""
@@ -315,13 +354,19 @@ class Simulator:
             kind = kinds[i] if i < len(kinds) else "landmark"
             w.append(self._detector_weight(kind))
         w = np.asarray(w, dtype=float)
-        # At most one detector may be missing weight in a single-monitor mode.
+        # Keep raw availability weights (0..1): _adaptive_veto compares them
+        # against a credibility floor.  _weighted_geom normalises internally.
         if w.sum() <= 1e-9:
             return np.ones(n) / n
-        return w / w.sum()
+        return w
 
     def _weighted_geom(self, a: np.ndarray, w: np.ndarray) -> float:
         eps = 1e-9
+        w = np.asarray(w, dtype=float)
+        if w.sum() <= 1e-9:
+            w = np.ones(len(a)) / len(a)
+        else:
+            w = w / w.sum()
         raw = np.exp(np.sum(w * np.log(np.clip(a, eps, 1.0))))
         return float(np.clip(raw, 0.0, 1.0))
 
@@ -614,7 +659,15 @@ class Simulator:
             # Independent landmark camera / geometry check.  This runs even
             # when flow is disabled; it only needs the camera + known world.
             if lm_acc >= landmark_period - 1e-9:
-                ids, dirs = self.landmark_field.observe(self.vehicle)
+                lm_out = self.cfg.landmark_outage
+                if lm_out is not None and lm_out[0] <= self.time < lm_out[1]:
+                    # Feature-poor window: no usable landmarks this frame.  The
+                    # consistency score holds its last opinion (unknown != bad),
+                    # but the observation count drops so the availability weight
+                    # gives this detector a weak voice.
+                    ids, dirs = np.array([], dtype=int), np.zeros((0, 3))
+                else:
+                    ids, dirs = self.landmark_field.observe(self.vehicle)
                 self._landmark_obs_count = len(ids)
                 self._landmark_score = self.landmark_consistency.evaluate(
                     ids, dirs, self.ekf.pos, self.ekf.rpy)

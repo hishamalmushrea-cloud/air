@@ -64,6 +64,7 @@ class Scenario:
     # Uncertainty-aware safety layer + independent landmark detector
     safety_enabled: bool = True
     landmark_enabled: bool = True
+    landmark_outage: Optional[tuple[float, float]] = None
 
     # Principled factor-graph independent monitor
     factorgraph_enabled: bool = True
@@ -97,6 +98,7 @@ class Scenario:
         cfg.flow_bias_ramp = self.flow_bias_ramp
         cfg.safety_enabled = self.safety_enabled
         cfg.landmark_enabled = self.landmark_enabled
+        cfg.landmark_outage = self.landmark_outage
         cfg.factorgraph_enabled = self.factorgraph_enabled
         cfg.detector_consensus = self.detector_consensus
         cfg.adaptive_escalate = self.adaptive_escalate
