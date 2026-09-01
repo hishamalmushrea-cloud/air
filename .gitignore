@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Generated artifacts
+out/
+*.csv
+*.png
+*.npy
+
+# OS
+.DS_Store

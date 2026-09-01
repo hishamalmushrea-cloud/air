@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "airlab"
+version = "0.1.0"
+description = "A readable reference implementation of an autonomous quadrotor autonomy stack for UAV research."
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+dependencies = ["numpy>=1.22"]
+
+[project.optional-dependencies]
+plots = ["matplotlib>=3.6"]
+test = ["unittest"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
