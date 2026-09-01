@@ -65,6 +65,10 @@ class Scenario:
     safety_enabled: bool = True
     landmark_enabled: bool = True
     landmark_outage: Optional[tuple[float, float]] = None
+    # Degenerate-parallax camera window: many landmarks but a tiny angular
+    # cone (close wall / low parallax).  Distinguishes count-weighted veto
+    # from angular-diversity trust.  See research-brief-16.
+    landmark_cluster: Optional[tuple[float, float]] = None
 
     # Principled factor-graph independent monitor
     factorgraph_enabled: bool = True
@@ -99,6 +103,7 @@ class Scenario:
         cfg.safety_enabled = self.safety_enabled
         cfg.landmark_enabled = self.landmark_enabled
         cfg.landmark_outage = self.landmark_outage
+        cfg.landmark_cluster = self.landmark_cluster
         cfg.factorgraph_enabled = self.factorgraph_enabled
         cfg.detector_consensus = self.detector_consensus
         cfg.adaptive_escalate = self.adaptive_escalate

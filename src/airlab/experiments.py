@@ -569,7 +569,8 @@ def consensus_study(
                                  "detector_consensus": consensus,
                                  "adaptive_escalate": adaptive_escalate,
                                  "mission_aware": mission_aware,
-                                 "landmark_outage": fault.get("landmark_outage")})
+                                 "landmark_outage": fault.get("landmark_outage"),
+                                 "landmark_cluster": fault.get("landmark_cluster")})
                 scenarios.append(s2)
             metrics_list = []
             outcomes = []
@@ -612,6 +613,10 @@ def consensus_main(argv=None) -> int:
     ap.add_argument("--landmark-outage", type=str, default="",
                     help="comma-separated 'start-end' window applied to ALL faults \
                           (feature-poor camera), e.g. '10-35'")
+    ap.add_argument("--landmark-cluster", type=str, default="",
+                    help="comma-separated 'start-end' window applied to ALL faults \
+                          (degenerate-parallax camera: many features in a tight \
+                          cone), e.g. '10-35'")
     ap.add_argument("--faults", type=str,
                     default="none,scale1.5,bias.1,bias.25",
                     help="comma-separated fault names from FAULT_PRESETS")
@@ -658,6 +663,17 @@ def consensus_main(argv=None) -> int:
             return 1
         for f in faults:
             f["landmark_outage"] = lm_out
+
+    # Optional degenerate-parallax (clustered-cone) camera window.
+    if args.landmark_cluster:
+        try:
+            s, e = args.landmark_cluster.split("-")
+            lm_cluster = (float(s), float(e))
+        except Exception:
+            print("[cons] bad --landmark-cluster (expected 'start-end')")
+            return 1
+        for f in faults:
+            f["landmark_cluster"] = lm_cluster
 
     rows = consensus_study(faults=faults, n_per_cell=args.n, duration=args.duration,
                            seed=args.seed, mission_aware=args.mission_aware,

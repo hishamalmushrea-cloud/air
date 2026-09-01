@@ -25,6 +25,28 @@ from .landmarks import LandmarkField, LandmarkConsistency
 from .factorgraph import SlidingFactorGraph, build_keyframe, ImuPreintegrator
 
 
+def _cone_bearing(axis: np.ndarray, a_rad: float, b_rad: float) -> np.ndarray:
+    """A unit vector near ``axis`` (within ~cone half-angle).
+
+    Builds an orthonormal basis around ``axis`` and perturbs by two small
+    orthogonal angles, emulating a camera whose features all lie in a small
+    projected patch.
+    """
+    axis = np.asarray(axis, dtype=float)
+    n = float(np.linalg.norm(axis))
+    if n < 1e-9:
+        return np.array([0.0, 0.0, 1.0])
+    axis = axis / n
+    u = np.array([1.0, 0.0, 0.0])
+    if abs(axis[0]) > 0.9:
+        u = np.array([0.0, 1.0, 0.0])
+    u = u - axis * np.dot(axis, u)
+    u = u / np.linalg.norm(u)
+    v = np.cross(axis, u)
+    d = axis + a_rad * u + b_rad * v
+    return d / np.linalg.norm(d)
+
+
 class SimConfig:
     def __init__(self) -> None:
         self.dt = 0.01
@@ -60,6 +82,14 @@ class SimConfig:
         # availability weight drops toward 0 — this is how we exercise the
         # measurement-availability guardrail.
         self.landmark_outage = None   # (start, end) seconds
+
+        # Window during which the camera still reports *many* landmarks but all
+        # within a tiny angular cone (a degenerate low-parallax scene, e.g. a
+        # close wall).  Raw count is high, so the binary availability weight
+        # cannot see it; the angular-diversity trust can and should treat it as
+        # thin.  This is the fault mode that differentiates adaptive_veto_trust.
+        self.landmark_cluster = None  # (start, end) seconds
+        self.landmark_cluster_cone = 0.04  # rad: half-angle of the degenerate cone
 
         # Principled factor-graph consistency monitor (IMU+flow+GPS+landmarks,
         # jointly optimised with a robust kernel).  Now enabled by default as a
@@ -362,15 +392,16 @@ class Simulator:
         """
         escalate = self.safety.cfg.adaptive_escalate
         warn = self.safety.cfg.detector_health_warn
+        floor = self.safety.cfg.detector_trust_floor
         if soft >= escalate:
             return soft
         kinds = ("landmark", "factorgraph")
         trusts = np.asarray([self._detector_trust(kinds[i] if i < len(kinds) else "landmark")
                              for i in range(len(a))], dtype=float)
         credible_low = [a[i] for i in range(len(a))
-                        if a[i] < warn and trusts[i] >= 0.45]
+                        if a[i] < warn and trusts[i] >= floor]
         if not credible_low:
-            healthy = [a[i] for i in range(len(a)) if trusts[i] >= 0.45]
+            healthy = [a[i] for i in range(len(a)) if trusts[i] >= floor]
             if healthy:
                 return float(max(healthy))
             return float(warn)
@@ -714,7 +745,15 @@ class Simulator:
                     # safety path, where a wide margin and a longer grace make
                     # it both decisive on real faults and silent on healthy
                     # manouevers.
-                    if self.cfg.landmark_enabled:
+                    #
+                    # Fold the landmark opinion into the velocity-aiding health
+                    # ONLY when the camera has enough *geometric leverage* to
+                    # be credible.  A degenerate-parallax window (many features
+                    # in a tight cone) has low angular-diversity trust and must
+                    # not drag down the flow health purely on raw count.
+                    if (self.cfg.landmark_enabled and
+                            self._detector_trust("landmark") >=
+                            self.safety.cfg.detector_trust_floor):
                         health = float(min(health, self._landmark_score))
                     if self.cfg.integrity_monitor_enabled:
                         integrity = self.flow_integrity.evaluate(flow_reading)
@@ -727,6 +766,7 @@ class Simulator:
             # when flow is disabled; it only needs the camera + known world.
             if lm_acc >= landmark_period - 1e-9:
                 lm_out = self.cfg.landmark_outage
+                lm_cluster = self.cfg.landmark_cluster
                 if lm_out is not None and lm_out[0] <= self.time < lm_out[1]:
                     # Feature-poor window: no usable landmarks this frame.  The
                     # consistency score holds its last opinion (unknown != bad),
@@ -735,6 +775,26 @@ class Simulator:
                     ids, dirs = np.array([], dtype=int), np.zeros((0, 3))
                 else:
                     ids, dirs = self.landmark_field.observe(self.vehicle)
+                    # Degenerate-parallax window: keep *many* landmarks but
+                    # collapse their bearings into a tight cone.  A camera
+                    # looking at a close wall still reports dozens of features,
+                    # yet they give almost no geometric leverage.  This is the
+                    # fault that count-only trust cannot see.
+                    if (lm_cluster is not None and len(ids) >= 2 and
+                            lm_cluster[0] <= self.time < lm_cluster[1]):
+                        axis = np.mean(np.asarray(dirs, dtype=float), axis=0)
+                        norm = float(np.linalg.norm(axis))
+                        if norm > 1e-9:
+                            axis = axis / norm
+                            cone = float(self.cfg.landmark_cluster_cone)
+                            # Small deterministic perturbations around the mean
+                            # bearing; count stays high, diversity collapses.
+                            rng = np.random.default_rng(1234)
+                            pert = rng.uniform(-cone, cone, size=(len(ids), 2))
+                            dirs = np.array([
+                                _cone_bearing(axis, p[0], p[1])
+                                for p in pert
+                            ], dtype=float)
                 self._landmark_obs_count = len(ids)
                 self._landmark_dirs = np.asarray(dirs, dtype=float).copy()
                 self._landmark_score = self.landmark_consistency.evaluate(

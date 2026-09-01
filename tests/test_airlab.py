@@ -351,6 +351,58 @@ class TestScenario(unittest.TestCase):
         self.assertGreater(trust_spread, 0.5)
         self.assertLess(trust_clustered, trust_spread * 0.5)
 
+    def test_landmark_cluster_keeps_count_but_collapses_trust(self):
+        # Degenerate-parallax window: rank count stays high (many landmarks)
+        # while angular-diversity trust collapses, so a camera with many data
+        # points in a tight cone is treated as a thin voice by the trust model.
+        from airlab.simulator import _cone_bearing
+        cfg = SimConfig()
+        sim = Simulator(cfg)
+        ids = np.arange(4)
+        ax = np.array([0.0, 0.0, 1.0])
+        rng = np.random.default_rng(5)
+        pert = rng.uniform(-0.04, 0.04, size=(len(ids), 2))
+        dirs = np.array([_cone_bearing(ax, p[0], p[1]) for p in pert])
+        sim._landmark_dirs = dirs
+        sim._landmark_obs_count = len(ids)
+        trust_cluster = sim._detector_trust("landmark")
+        self.assertGreaterEqual(sim._detector_weight("landmark"), 0.5)  # count says credible
+        self.assertLess(trust_cluster, 0.35)                            # geometry says thin
+        # Same count, spread directions -> high trust (sanity).
+        spread = np.array([[1.0, 0, 0], [0, 1.0, 0], [0, 0, -0.2],
+                           [0.3, -0.4, 0.85]])
+        spread = spread / np.linalg.norm(spread, axis=1, keepdims=True)
+        sim._landmark_dirs = spread
+        sim._landmark_obs_count = 4
+        self.assertGreater(sim._detector_trust("landmark"), 0.7)
+
+    def test_trust_veto_does_not_false_land_on_degenerate_parallax(self):
+        # A camera that reports *many* features in a tiny angular cone (close
+        # wall / low parallax) has high count but low angular-diversity trust.
+        # The count-based veto treats it as credible and false-lands a healthy
+        # mission; the trust veto recognises the geometry is degenerate and
+        # does not.  This is the discriminating case research-brief-16.
+        from dataclasses import replace
+        import numpy as np
+        from airlab.scenarios import random_scenario
+
+        rng = np.random.default_rng(909)
+        # consume the first two random scenarios, use the second which has a
+        # GPS outage that exposes the velocity-aiding signal path
+        random_scenario(rng, duration=40.0, index=0)
+        s = random_scenario(rng, duration=40.0, index=1)
+
+        for policy, expect_landed in (("adaptive_veto", 1.0),
+                                      ("adaptive_veto_trust", 0.0)):
+            s2 = replace(s, detector_consensus=policy,
+                         landmark_cluster=(6.0, 22.0))
+            m, _ = run_scenario(s2, record=True)
+            self.assertAlmostEqual(m["crash"], 0.0, places=3)
+            if expect_landed > 0:
+                self.assertGreater(m["landed"], 0.4)     # false landing exposed
+            else:
+                self.assertEqual(m["landed"], 0.0)       # trust veto stays quiet
+
     def test_adaptive_veto_keeps_healthy_veto_during_outage(self):
         # A feature-poor camera keeps its last healthy score.  A symmetric
         # availability weight would down-weight it and let a noisier factor

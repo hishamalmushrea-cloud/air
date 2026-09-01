@@ -53,6 +53,13 @@ class SafetyConfig:
         # worst-of (min) opinion.  Decoupled from the warning line so an
         # operator can tune "when to go hard" independently of "when to warn".
         self.adaptive_escalate = 0.65
+        # Measurement-*trust* floor: only a detector with enough local
+        # geometric information (not merely a high raw count) may fold its
+        # opinion into a safety decision or into the velocity-aiding health.
+        # A degenerate-parallax camera (many features in a tiny cone) has low
+        # angular diversity and therefore low trust, even though the count
+        # looks healthy.
+        self.detector_trust_floor = 0.45
 
         # Time the condition must persist before reacting (s).
         self.grace_flow_warn_s = 1.0

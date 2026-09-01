@@ -135,18 +135,24 @@ sensor-fusion layer is designed to close.
 
 ## Roadmap (current thinking)
 
-The repo is at **Stage 16** of the longer research program. The next stages in
+The repo is at **Stage 17** of the longer research program. The next stages in
 order of value:
 
-1. **Self-measured frame trust is implemented.**  `adaptive_veto_trust` replaces
-   the binary availability floor with a continuous trust: landmark count ×
-   **angular diversity** (a cluster-of-points camera is weak even with many
-   features) and factor-graph conditioning × convergence.  In the current
-   (always well-spread) world it is identical to `adaptive_veto` (bias.25 0.844
-   landed, crash 0, healthy 0.000); its distinguishing behaviour needs a
-   clustered-degenerate camera to exercise (`docs/research-brief-15.md`).
-2. **Inject a clustered-degenerate camera** as a first-class failure, then
-   compare `adaptive_veto` vs `adaptive_veto_trust` there.
+1. **Frame trust is now discriminated end-to-end.**  We injected a first-class
+   **degenerate-parallax camera** failure (many landmarks in a tight angular
+   cone, e.g. a close wall): `--landmark-cluster 6-22`.  Raw count stays high,
+   so the count-based veto treats it as credible and **false-lands a healthy
+   mission 0.748**; the angular-diversity trust veto
+   (`adaptive_veto_trust`) **recognises the degenerate geometry and stays quiet
+   (0.000 false land, in-bounds 1.000)** while still landing on real faults
+   (bias.25 0.844, crash 0.000).  This required also gating the landmark score's
+   fold into velocity-aiding flow health behind the same trust floor, otherwise
+   the cluster leaked a false `velocity_aiding_failed_without_gps` during a GPS
+   outage and bypassed the consensus entirely
+   (`docs/research-brief-16.md`).
+2. **Outage regression is clean:** `adaptive_veto_trust == adaptive_veto` on
+   every real fault (scale1.5 0.765, bias.25 0.844, crash 0) and healthy+outage
+   0.000, so the trust floor is a strict improvement, not a regression.
 3. **Learned per-frame confidence** on top of the analytic trust; then sparse
    factor-graph outage and n≥30 for headline crash numbers.
 2. **Mission-aware RTL is opt-in and honestly limited.**  A ramping corrupt
