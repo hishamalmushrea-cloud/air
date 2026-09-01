@@ -22,6 +22,7 @@ CRUISE = "CRUISE"
 HOLD = "HOLD"
 LAND = "LAND"
 LANDED = "LANDED"
+RTL = "RTL"
 
 
 class SafetyConfig:
@@ -151,6 +152,9 @@ class SafetyMonitor:
         gps_available: bool,
         flow_health: float | None = None,
         detector_health: float | None = None,
+        mission_aware: bool = False,
+        can_rtl: bool = False,
+        at_base: bool = False,
     ) -> SafetyDecision:
         # Horizontal uncertainty from the EKF covariance (position 0..1).
         P_h = ekf.P[0, 0] + ekf.P[1, 1]
@@ -226,14 +230,21 @@ class SafetyMonitor:
         # ---- state machine ----
         # An independent-detector fault is a hard signal: land even if GPS is
         # still healthy, because the corrupt velocity-aiding source is driving
-        # the controller and can crash the vehicle anyway.
+        # the controller and can crash the vehicle anyway.  If a mission-aware
+        # policy is enabled and a return to base is safe, use RTL first.
         det_land = self._det_fail_time >= self.cfg.grace_detector_fail_s
         det_hold = self._det_warn_time >= self.cfg.grace_detector_warn_s
+        need_land = (self._fail_time >= self.cfg.grace_flow_fail_s or
+                     self._unc_smooth > self.cfg.pos_std_land or det_land)
+        can_rtl_now = mission_aware and can_rtl and not at_base
+        rtl = need_land and can_rtl_now
 
         if state == CRUISE:
-            # Once uncertainty is already too high, land regardless of health.
-            if self._fail_time >= self.cfg.grace_flow_fail_s or \
-               self._unc_smooth > self.cfg.pos_std_land or det_land:
+            # Once uncertainty is already too high, land/return regardless.
+            if rtl:
+                state = RTL
+                self.reason = det_fail_reason or fail_reason or "return_to_base"
+            elif need_land:
                 state = LAND
                 self.reason = det_fail_reason or fail_reason or "uncertainty_critical"
             elif self._warn_time >= self.cfg.grace_flow_warn_s or \
@@ -242,8 +253,10 @@ class SafetyMonitor:
                 self.reason = det_warn_reason or warn_reason or "degraded_navigation"
         elif state == HOLD:
             # A hold buys time but should not become an indefinite drift.
-            if self._fail_time >= self.cfg.grace_flow_fail_s or \
-               self._unc_smooth > self.cfg.pos_std_land or det_land:
+            if rtl:
+                state = RTL
+                self.reason = det_fail_reason or fail_reason or "return_to_base"
+            elif need_land:
                 state = LAND
                 self.reason = det_fail_reason or fail_reason or "hold_uncertainty_critical"
             elif not det_hold and gps_available and health >= self.cfg.flow_health_warn \
@@ -254,6 +267,21 @@ class SafetyMonitor:
             elif altitude < self.cfg.land_altitude:
                 state = LAND
                 self.reason = "hold_low_altitude"
+        elif state == RTL:
+            # Keep returning until either we reach base (then land) or the
+            # battery/geometry no longer allows it (then land immediately).
+            if at_base:
+                state = LAND
+                self.reason = "rtl_at_base"
+            elif mission_aware and not can_rtl:
+                state = LAND
+                self.reason = "rtl_energy_exhausted"
+            elif not mission_aware:
+                state = LAND
+                self.reason = "rtl_not_configured"
+            else:
+                state = RTL
+                self.reason = "return_to_base"
 
         # once latched, stay LAND until touchdown
         if state == LAND and self.cfg.land_trigger_is_latched:

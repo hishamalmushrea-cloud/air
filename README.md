@@ -69,7 +69,8 @@ of the stack is inspectable and replaceable.
 | `run_landmark.py` | independent landmark detector ablation CLI |
 | `run_factorgraph.py` | factor-graph detector characterisation CLI |
 | `run_factorgraph_live.py` | calibrated factor-graph live-detector ablation CLI |
-| `plot_results.py` | batch / degradation / corruption / landmark / factor-graph charts |
+| `run_consensus.py` | consensus policy comparison between the two independent detectors |
+| `plot_results.py` | batch / degradation / corruption / landmark / factor-graph / consensus charts |
 
 ---
 
@@ -134,26 +135,32 @@ sensor-fusion layer is designed to close.
 
 ## Roadmap (current thinking)
 
-The repo is at **Stage 8** of the longer research program. The next stages in
+The repo is at **Stage 9** of the longer research program. The next stages in
 order of value:
 
-1. **Two-monitor consensus is now live** — the landmark detector and the
-   calibrated factor graph both feed a dedicated independent-detector safety
-   path that can force a landing **even while GNSS is still available**.  Next
-   we tune the margins across a wider fault/seed grid (n≥30) and choose a final
-   consensus policy (AND/OR/weighted).
-2. **Richer landmark geometry** — higher rate, landmark persistence and a
+1. **Two-monitor consensus is live and its policy is studied.**  The default is
+   `min` (worst-of / OR): as soon as *any* independent detector is confident,
+   the safety layer may force a landing even while GNSS is available.  `geom`
+   is the tunable middle for mission-completion-conscious operations.  A wider
+   grid (n≥30) is still the right statistical next step.
+2. **Mission-aware RTL is opt-in and honestly limited.**  A ramping corrupt
+   velocity source corrupts navigation before detection, so RTL is a guess
+   there.  The useful design-in pieces (early source rejection, GPS-only state
+   reset, ground-contact friction) apply to immediate land too; RTL becomes
+   attractive for a different fault class (e.g. battery/actuator degradation
+   with intact navigation).
+3. **Richer landmark geometry** — higher rate, landmark persistence and a
    learned "trust this frame" model.
-3. **Physics fidelity v4** — motor/spin dynamics, propeller model, thermal,
+5. **Physics fidelity v4** — motor/spin dynamics, propeller model, thermal,
    ground effect.
-4. **Digital twin** — save a run as telemetry and provide replay/re-command.
-5. **Battery-aware mission decision** — use the power model to decide "return
+6. **Digital twin** — save a run as telemetry and provide replay/re-command.
+7. **Battery-aware mission decision** — use the power model to decide "return
    now" vs "continue", and add a thermal budget.
-6. **Learnable components** — learned surrogate for the EKF motion model and a
+8. **Learnable components** — learned surrogate for the EKF motion model and a
    policy/neural controller trained in this environment.
-7. **Multi-agent swarm** — extend to several vehicles with distributed
+9. **Multi-agent swarm** — extend to several vehicles with distributed
    waypoint assignment.
-8. **Validation bridge** — port the same mission to PX4 SITL or JSBSim to
+10. **Validation bridge** — port the same mission to PX4 SITL or JSBSim to
    compare the lightweight model against a real EOM.
 
 ---

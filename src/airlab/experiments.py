@@ -501,6 +501,100 @@ def factorgraph_detector_study(
     return rows
 
 
+def consensus_study(
+    faults: list[dict] | None = None,
+    n_per_cell: int = 6,
+    duration: float = 45.0,
+    seed: int = 191,
+    mission_aware: bool = False,
+) -> list[dict]:
+    """Compare consensus policies between the two independent detectors.
+
+    Each cell uses the SAME random missions across policies so the comparison is
+    paired.  The policies are:
+      none      - no independent monitor (only flow self-report)
+      lm_only   - landmark detector only
+      fg_only   - calibrated factor graph only
+      min       - worst-of (OR): any bad detector triggers
+      max       - best-of (AND): both must agree a fault exists
+      geom      - geometric mean (soft consensus)
+    """
+    if faults is None:
+        faults = [
+            {"name": "none",     "scale": 1.0, "bias_ramp": 0.0},
+            {"name": "scale1.5", "scale": 1.5, "bias_ramp": 0.0},
+            {"name": "bias.1",   "scale": 1.0, "bias_ramp": 0.10},
+            {"name": "bias.25",  "scale": 1.0, "bias_ramp": 0.25},
+        ]
+    rng = np.random.default_rng(seed)
+    base = [random_scenario(rng, duration=duration, index=k) for k in range(n_per_cell)]
+    policies = [
+        ("none",  False, False, "min"),
+        ("lm_only", True, False, "min"),
+        ("fg_only", False, True, "min"),
+        ("min",   True, True, "min"),
+        ("max",   True, True, "max"),
+        ("geom",  True, True, "geom"),
+    ]
+    rows = []
+    for fault in faults:
+        for label, lm_on, fg_on, consensus in policies:
+            scenarios = []
+            for s in base:
+                s2 = Scenario(**{**s.as_dict(),
+                                 "flow_scale": float(fault["scale"]),
+                                 "flow_bias_ramp": float(fault["bias_ramp"]),
+                                 "safety_enabled": True,
+                                 "landmark_enabled": lm_on,
+                                 "factorgraph_enabled": fg_on,
+                                 "detector_consensus": consensus,
+                                 "mission_aware": mission_aware})
+                scenarios.append(s2)
+            metrics_list = []
+            outcomes = []
+            for s in scenarios:
+                m, _ = run_scenario(s, record=False)
+                metrics_list.append(m)
+                outcomes.append(m.get("safety_outcome", "none"))
+            agg = average_of_metrics(metrics_list, ["in_bounds_frac", "crash",
+                                                    "landed", "safety_fraction"])
+            row = {
+                "flow_fault": fault["name"],
+                "flow_scale": float(fault["scale"]),
+                "flow_bias_ramp": float(fault["bias_ramp"]),
+                "policy": label,
+                "n": n_per_cell,
+                "mean_in_bounds": agg.get("in_bounds_frac", float("nan")),
+                "mean_crash": agg.get("crash", float("nan")),
+                "mean_landed": agg.get("landed", float("nan")),
+                "mean_safety_fraction": agg.get("safety_fraction", float("nan")),
+                "outcomes": ";".join(outcomes),
+            }
+            rows.append(row)
+            print(f"[cons] fault={fault['name']:8s} policy={label:8s} "
+                  f"in_bounds={row['mean_in_bounds']:.3f} "
+                  f"crash={row['mean_crash']:.3f} "
+                  f"landed={row['mean_landed']:.3f} "
+                  f"outcome={row['outcomes']}")
+    return rows
+
+
+def consensus_main(argv=None) -> int:
+    import argparse
+    ap = argparse.ArgumentParser(description="Consensus policy comparison between independent detectors")
+    ap.add_argument("--n", type=int, default=6)
+    ap.add_argument("--duration", type=float, default=45.0)
+    ap.add_argument("--seed", type=int, default=191)
+    ap.add_argument("--mission-aware", action="store_true")
+    ap.add_argument("--out", type=str, default="out/consensus.csv")
+    args = ap.parse_args(argv)
+    rows = consensus_study(n_per_cell=args.n, duration=args.duration,
+                           seed=args.seed, mission_aware=args.mission_aware)
+    write_csv(rows, args.out)
+    print(f"[cons] wrote {args.out}")
+    return 0
+
+
 def factorgraph_main(argv=None) -> int:
     import argparse
     ap = argparse.ArgumentParser(description="Characterise the factor-graph consistency detector")

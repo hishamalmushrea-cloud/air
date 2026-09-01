@@ -19,7 +19,8 @@ from .control import FlightController
 from .mission import WaypointMission
 from .metrics import evaluate_mission
 from .safety import (SafetyMonitor, SafetyConfig, CRUISE, HOLD, LAND, LANDED,
-                     VelocityIntegrityMonitor)
+                     RTL, VelocityIntegrityMonitor)
+from .energy import PowerModel
 from .landmarks import LandmarkField, LandmarkConsistency
 from .factorgraph import SlidingFactorGraph, build_keyframe, ImuPreintegrator
 
@@ -65,6 +66,23 @@ class SimConfig:
         self.factorgraph_enabled = True
         self.factorgraph_hz = 2.0
         self.factorgraph_kwargs = {}
+
+        # How to combine the independent detectors into a single
+        # ``detector_health`` for the safety layer:
+        #   "min"  -> worst-of (OR): any bad detector triggers  (most conservative)
+        #   "max"  -> best-of (AND): both must agree a fault exists (least alarm)
+        #   "geom" -> geometric mean (soft consensus)
+        self.detector_consensus = "min"
+
+        # Mission-aware emergency response: instead of always landing where the
+        # fault is detected, try to return to base first if the battery and
+        # geometry safely allow it; otherwise land immediately.
+        self.mission_aware = False
+        self.base_pos = (0.0, 0.0)          # NED north/east of takeoff
+        self.rtl_speed = 2.0                 # m/s cruise back to base
+        self.rtl_radius_m = 2.0              # "at base" tolerance
+        self.energy_reserve_frac = 0.25      # need >= this to attempt RTL
+        self.battery_capacity_wh = 100.0
 
         self.vehicle_kwargs = {}
         self.sensor_kwargs = {}
@@ -184,6 +202,9 @@ class Simulator:
         self.landmark_consistency = LandmarkConsistency(self.landmark_field)
         self.factorgraph = SlidingFactorGraph(self.landmark_field.positions,
                                               **self.cfg.factorgraph_kwargs)
+        # Online energy accounting for mission-aware emergency response.
+        self.power_model = PowerModel(battery_capacity_wh=self.cfg.battery_capacity_wh)
+        self._energy_wh_used = 0.0
         self.rng = np.random.default_rng(self.cfg.seed)
         self.time = 0.0
         self.last_imu = None
@@ -203,6 +224,25 @@ class Simulator:
         # calibrated from trusted GNSS data, so the safety layer must not use
         # it before that point.
         self.factorgraph_health_trusted = False
+        # Detector-triggered source rejection: once the independent monitors
+        # agree the velocity-aiding source is corrupt, stop feeding it to the
+        # EKF.  This is what makes a later RTL safe — navigation continues on
+        # GPS/baro only, and the corrupt velocity can no longer drive the
+        # controller.
+        self.flow_rejected = False
+        self._flow_reject_reason = "none"
+
+    def _combine_detectors(self, parts: list[float]) -> float:
+        """Combine independent detector healths using the consensus policy."""
+        if not parts:
+            return 1.0
+        a = np.asarray(parts, dtype=float)
+        mode = self.cfg.detector_consensus
+        if mode == "max":            # AND: both must agree there is a fault
+            return float(np.max(a))
+        if mode == "geom":           # soft consensus
+            return float(np.sqrt(np.prod(np.clip(a, 1e-9, 1.0))))
+        return float(np.min(a))      # "min" / default: OR, worst-of
 
     def _make_vehicle(self, cfg: SimConfig) -> Quadrotor:
         return Quadrotor(**cfg.vehicle_kwargs)
@@ -245,6 +285,38 @@ class Simulator:
     def _gps_available(self) -> bool:
         return self.sensors.cfg.gps_dropout <= 0.0
 
+    def _base(self) -> np.ndarray:
+        return np.asarray(self.cfg.base_pos, dtype=float).reshape(2)
+
+    def _at_base(self) -> bool:
+        est = self.ekf.pos
+        d = np.linalg.norm(est[:2] - self._base())
+        return bool(d <= self.cfg.rtl_radius_m)
+
+    def _can_rtl(self) -> bool:
+        """Battery-aware return-to-base feasibility.
+
+        Requires (1) the aircraft to still know *where base is* in world
+        coordinates (GNSS up or position uncertainty small), and (2) the
+        remaining energy to comfortably cover the cruise back (hover power x
+        time) plus the configured reserve.  This keeps the mission-aware
+        response from trading a local safe landing for either a mid-return
+        power failure or a flight back to an unknown base.
+        """
+        if not self._gps_available():
+            # Without an absolute reference we do not know the base in world
+            # frame; RTL would be a guess.  Land where we are.
+            return False
+        remaining_wh = max(0.0, self.cfg.battery_capacity_wh - self._energy_wh_used)
+        dist = float(np.linalg.norm(self.ekf.pos[:2] - self._base()))
+        if dist <= self.cfg.rtl_radius_m:
+            return True
+        speed = max(self.cfg.rtl_speed, 0.1)
+        return_time = dist / speed
+        return_energy_wh = self.power_model.p_hover * return_time / 3600.0
+        reserve_wh = self.cfg.energy_reserve_frac * self.cfg.battery_capacity_wh
+        return bool(remaining_wh >= return_energy_wh + reserve_wh)
+
     def _safety_override(self, pos_ref: np.ndarray, vel_ref: np.ndarray,
                          yaw_ref: float, mode: str) -> tuple[np.ndarray, np.ndarray]:
         """Modify the commanded trajectory based on the safety mode."""
@@ -253,6 +325,18 @@ class Simulator:
         est = self.ekf.pos
         if mode == HOLD:
             return est.copy(), np.zeros(3)
+        if mode == RTL:
+            # Return to base at current altitude, then the FSM transitions to
+            # LAND once the horizontal distance is small enough.
+            base = self._base()
+            target = np.array([base[0], base[1], est[2]])
+            d = np.array([base[0] - est[0], base[1] - est[1]])
+            dist = float(np.linalg.norm(d))
+            if dist > max(self.cfg.rtl_radius_m, 1e-3):
+                v = np.array([d[0] / dist, d[1] / dist, 0.0]) * self.cfg.rtl_speed
+            else:
+                v = np.zeros(3)
+            return target, v
         if mode == LAND:
             # Sit on the ground as the goal, descend at a fixed rate.
             ground = float(self.vehicle.ground)
@@ -293,28 +377,55 @@ class Simulator:
 
             # ---- uncertainty-aware safety decision (from last EKF state) ----
             gps_ok = self._gps_available()
-            # Independent-detector health: min of the *structurally independent*
-            # monitors (landmark geometry + factor graph).  This is the signal
-            # that is allowed to force a landing even when GPS is still up,
-            # because a corrupt velocity-aiding source drives the controller
-            # and can crash the aircraft regardless of an absolute fix.
-            # The factor graph is only trusted once its startup calibration has
-            # finished; before that its residual maps to a low, meaningless
-            # health and would cause a false hold.
+            # Independent-detector health: combine the *structurally
+            # independent* monitors (landmark geometry + factor graph) using the
+            # configured consensus policy.  This is the signal that is allowed
+            # to force a landing even when GPS is still up, because a corrupt
+            # velocity-aiding source drives the controller and can crash the
+            # aircraft regardless of an absolute fix.  The factor graph is only
+            # trusted once its startup calibration has finished; before that its
+            # residual maps to a low, meaningless health and would cause a false
+            # hold.
             det_health = None
-            fg_health = float(self._factorgraph_health) \
-                if self.factorgraph_health_trusted else 1.0
             det_parts = []
             if self.cfg.landmark_enabled:
                 det_parts.append(float(self._landmark_score))
             if self.cfg.factorgraph_enabled:
+                fg_health = float(self._factorgraph_health) \
+                    if self.factorgraph_health_trusted else 1.0
                 det_parts.append(fg_health)
             if det_parts:
-                det_health = float(min(det_parts))
+                det_health = self._combine_detectors(det_parts)
+                # Detector-triggered source rejection: stop trusting the corrupt
+                # velocity-aiding source as soon as the independent monitors
+                # warn (not only at the LAND threshold).  Rejection must happen
+                # *early*: by the time the detector reaches the hard-fail
+                # threshold the corrupt velocity has usually already driven the
+                # aircraft off course, making any RTL a guess.
+                if det_health < self.safety.cfg.detector_health_warn and \
+                   not self.flow_rejected:
+                    self.flow_rejected = True
+                    self._flow_reject_reason = "independent_detector_warn"
+                    # If an absolute fix is available, decisively reset the
+                    # corrupted position/velocity state so the (trusted) GPS
+                    # becomes the source of truth for the subsequent RTL.
+                    # Otherwise the contaminated velocity would keep driving
+                    # the controller even after the source is rejected.
+                    if gps_ok:
+                        fix = self.sensors.sample_gps(self.vehicle)
+                        if fix is not None:
+                            gps_pos, gps_vel = fix
+                            gx = self.ekf.x.copy()
+                            gx[S_IDX] = np.asarray(gps_pos, dtype=float).reshape(3)
+                            gx[V_IDX] = np.asarray(gps_vel, dtype=float).reshape(3)
+                            self.ekf.x = _wrap_state(gx)
             dec = self.safety.update(self.ekf, self.sensors,
                                      self.vehicle.altitude, dt, gps_ok,
                                      flow_health=self._effective_flow_health,
-                                     detector_health=det_health)
+                                     detector_health=det_health,
+                                     mission_aware=self.cfg.mission_aware,
+                                     can_rtl=self._can_rtl(),
+                                     at_base=self._at_base())
             self._last_unc_std = dec.uncertainty_std
 
             # ---- mission desired state using *estimated* position ----
@@ -333,12 +444,21 @@ class Simulator:
                     self.ekf.rpy, self.ekf.vel,
                     land_speed=self.safety.cfg.land_speed,
                 )
-            # Once genuinely on the ground, behave like a disarmed-but-on
-            # vehicle: hold neutral thrust so a bad vertical estimate cannot
-            # command the aircraft back into the air.
-            if dec.mode == LANDED and self.vehicle.altitude <= 0.25:
-                control = np.array([9.80665, 0.0, 0.0, 0.0])
+            # Once LANDED, ALWAYS use the level-and-hold controller.  It must
+            # not fall back to the position cascade above 0.25 m: by that point
+            # the velocity estimate is the very thing the detector rejected, so
+            # the cascade would drive the aircraft away.  Level + zero descent
+            # lets any residual horizontal momentum bleed off on the ground.
+            if dec.mode == LANDED:
+                control = self.controller.landing(
+                    self.ekf.rpy, self.ekf.vel, land_speed=0.0,
+                )
             self.last_control = control
+
+            # ---- online energy accounting (drives mission-aware RTL) ----
+            if self.cfg.mission_aware:
+                specific = float(control[0])
+                self._energy_wh_used += self.power_model.power(specific) * dt / 3600.0
 
             # ---- plant ----
             self.vehicle.step(control, dt, wind_ned=self.cfg.wind_ned)
@@ -385,7 +505,7 @@ class Simulator:
             if mag_acc >= mag_period - 1e-9:
                 # (magnetometer already used inside AHRS; no separate update)
                 mag_acc = 0.0
-            if self.cfg.flow_enabled and flow_acc >= flow_period - 1e-9:
+            if self.cfg.flow_enabled and not self.flow_rejected and flow_acc >= flow_period - 1e-9:
                 flow_reading = self.sensors.sample_flow(self.vehicle)
                 if flow_reading is not None:
                     self.ekf.update(flow_reading, FLOW)

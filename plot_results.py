@@ -270,6 +270,42 @@ def plot_factorgraph_live(path: str, out: str) -> None:
     print(f"[plot] factorgraph live -> {out}")
 
 
+def plot_consensus(path: str, out: str) -> None:
+    rows = _read(path)
+    if not rows:
+        return
+    faults = sorted({r.get("flow_fault", "none") for r in rows})
+    policies = ["none", "lm_only", "fg_only", "min", "max", "geom"]
+    colors = {
+        "none": "#666666", "lm_only": "#2b8cbe", "fg_only": "#de2d26",
+        "min": "#31a354", "max": "#756bb1", "geom": "#ff7f00",
+    }
+    fig, ax = plt.subplots(1, 2, figsize=(12, 4.5))
+    width = 0.8 / len(policies)
+    for f, fault in enumerate(faults):
+        for p, pol in enumerate(policies):
+            sub = [r for r in rows if r.get("flow_fault") == fault and r.get("policy") == pol]
+            if not sub:
+                continue
+            crash = float(sub[0].get("mean_crash", float("nan")))
+            landed = float(sub[0].get("mean_landed", float("nan")))
+            x = f + (p - len(policies) / 2.0) * width
+            ax[0].bar(x, crash, width=width, color=colors[pol], alpha=0.8,
+                      label=pol if f == 0 else None)
+            ax[1].bar(x, landed, width=width, color=colors[pol], alpha=0.8,
+                      label=pol if f == 0 else None)
+    for a in ax:
+        a.set_xticks(np.arange(len(faults)))
+        a.set_xticklabels(faults)
+        a.grid(alpha=0.3, axis="y")
+        a.legend(fontsize=8, ncol=2)
+    ax[0].set_ylabel("mean unintended crash")
+    ax[1].set_ylabel("mean landed fraction")
+    fig.tight_layout()
+    fig.savefig(out, dpi=130)
+    print(f"[plot] consensus -> {out}")
+
+
 def main():
     batch = sys.argv[1] if len(sys.argv) > 1 else "out/batch.csv"
     deg = sys.argv[2] if len(sys.argv) > 2 else "out/degradation.csv"
@@ -277,6 +313,7 @@ def main():
     lm = sys.argv[4] if len(sys.argv) > 4 else "out/landmark.csv"
     fg = sys.argv[5] if len(sys.argv) > 5 else "out/factorgraph.csv"
     fglive = sys.argv[6] if len(sys.argv) > 6 else "out/factorgraph_live.csv"
+    consensus = sys.argv[7] if len(sys.argv) > 7 else "out/consensus.csv"
     outdir = "out"
     if os.path.exists(batch):
         plot_batch(batch, os.path.join(outdir, "batch.png"))
@@ -290,6 +327,8 @@ def main():
         plot_factorgraph(fg, os.path.join(outdir, "factorgraph.png"))
     if os.path.exists(fglive):
         plot_factorgraph_live(fglive, os.path.join(outdir, "factorgraph_live.png"))
+    if os.path.exists(consensus):
+        plot_consensus(consensus, os.path.join(outdir, "consensus.png"))
 
 
 if __name__ == "__main__":

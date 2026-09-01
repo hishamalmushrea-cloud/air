@@ -77,6 +77,23 @@ class TestDynamics(unittest.TestCase):
         v.step(np.array([G, 1.0, 0.0, 0.0]), 0.01)
         self.assertGreater(v.a_ned[1], 0.0)
 
+    def test_ground_friction_stops_skid(self):
+        # A landed aircraft with horizontal momentum must decelerate on contact
+        # (otherwise "safe landing" is a lie: it would skid forever).
+        v = Quadrotor(init_pos=[0.0, 0.0, 0.0], init_vel=[5.0, 3.0, 0.0],
+                      ground=0.0, ground_friction=5.0)
+        for _ in range(100):  # 1 s
+            v.step(np.array([G, 0.0, 0.0, 0.0]), 0.01)
+        self.assertLess(np.linalg.norm(v.vel[:2]), 0.2)
+        self.assertEqual(v.pos[2], 0.0)
+
+    def test_ground_friction_zero_if_disabled(self):
+        v = Quadrotor(init_pos=[0.0, 0.0, 0.0], init_vel=[5.0, 0.0, 0.0],
+                      ground=0.0, ground_friction=0.0)
+        v.step(np.array([G, 0.0, 0.0, 0.0]), 0.01)
+        # No friction => horizontal velocity only decays by air drag (tiny).
+        self.assertGreater(v.vel[0], 4.9)
+
 
 class TestAHRS(unittest.TestCase):
     def test_leveling_sign(self):
@@ -268,6 +285,35 @@ class TestScenario(unittest.TestCase):
         self.assertGreater(m["safety_fraction"], 0.0)
         self.assertLess(m["crash"], 0.01)
         self.assertIn(m["safety_outcome"], ("reactive_hold", "landed_safely"))
+
+    def test_consensus_policy_combine(self):
+        cfg = SimConfig()
+        sim = Simulator(cfg)
+        parts = [0.2, 0.9]
+        cfg.detector_consensus = "min"
+        self.assertAlmostEqual(sim._combine_detectors(parts), 0.2)
+        cfg.detector_consensus = "max"
+        self.assertAlmostEqual(sim._combine_detectors(parts), 0.9)
+        cfg.detector_consensus = "geom"
+        self.assertAlmostEqual(sim._combine_detectors(parts), np.sqrt(0.18))
+
+    def test_rtl_requires_gps(self):
+        # Return-to-base must NOT be attempted when there is no absolute fix:
+        # without GPS the aircraft does not know where base is in world frame,
+        # so RTL would be a guess.  It should land immediately instead.
+        cfg = SimConfig()
+        cfg.duration = 30.0
+        cfg.gps_outage = (2.0, 30.0)
+        cfg.flow_bias_ramp = 0.25
+        cfg.mission_aware = True
+        cfg.factorgraph_enabled = True
+        cfg.landmark_enabled = True
+        sim = Simulator(cfg)
+        r = sim.run(record=True)
+        self.assertNotIn("RTL", set(r.mode))
+        m = safety_metrics(r, cfg.dt)
+        self.assertIn(m["safety_outcome"], ("reactive_hold", "landed_safely"))
+        self.assertEqual(m["crash"], 0.0)
 
     def test_factor_graph_detects_large_flow_bias(self):
         """A big ramping bias must drive the factor-graph flow residual up."""

@@ -49,6 +49,7 @@ class Quadrotor:
         init_vel: np.ndarray | None = None,
         init_rpy: np.ndarray | None = None,
         ground: float = 0.0,             # NED z of ground (down positive)
+        ground_friction: float = 5.0,    # 1/s horizontal damping on contact
     ) -> None:
         self.mass = mass
         self.inertia = np.diag(inertia if inertia is not None else [0.012, 0.012, 0.022])
@@ -59,6 +60,7 @@ class Quadrotor:
         self.max_pitch = max_pitch
         self.max_thrust = max_thrust
         self.ground = ground
+        self.ground_friction = ground_friction
 
         self.pos = _vec_len3(init_pos if init_pos is not None else [0.0, 0.0, -2.0])
         self.vel = _vec_len3(init_vel if init_vel is not None else [0.0, 0.0, 0.0])
@@ -126,13 +128,22 @@ class Quadrotor:
         drag_ned = -self.drag * self.vel
         a_ned = a_thrust_ned + GRAVITY_NED + drag_ned + wind + dist
 
-        # simple ground collision (clamp, kill vertical rate)
+        # simple ground collision: clamp, kill vertical rate, and apply contact
+        # friction to the horizontal velocity.  Without friction a landed
+        # aircraft keeps the momentum it arrived with (a skid), which makes a
+        # "safe" landing metric misleading.
         new_pos = self.pos + self.vel * dt + 0.5 * a_ned * dt * dt
         new_vel = self.vel + a_ned * dt
         if self.ground is not None and new_pos[2] >= self.ground:
             new_pos[2] = self.ground
             if new_vel[2] > 0.0:
                 new_vel[2] = 0.0
+            # Coulomb-like scrub: exponential horizontal damping while in
+            # contact.  A larger coefficient models a firmer brake / skid.
+            mu = max(float(self.ground_friction), 0.0)
+            decay = float(np.exp(-mu * dt))
+            new_vel[0] *= decay
+            new_vel[1] *= decay
 
         self.pos = new_pos
         self.vel = new_vel

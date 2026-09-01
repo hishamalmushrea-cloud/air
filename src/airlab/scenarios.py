@@ -65,8 +65,19 @@ class Scenario:
     safety_enabled: bool = True
     landmark_enabled: bool = True
 
-    # Principled factor-graph independent monitor (opt-in for analysis)
-    factorgraph_enabled: bool = False
+    # Principled factor-graph independent monitor
+    factorgraph_enabled: bool = True
+
+    # Consensus policy between the independent detectors ("min" / "max" / "geom")
+    detector_consensus: str = "min"
+
+    # Mission-aware emergency response (return-to-base vs land-now)
+    mission_aware: bool = False
+    base_pos: tuple[float, float] = (0.0, 0.0)
+    rtl_speed: float = 2.0
+    rtl_radius_m: float = 2.0
+    energy_reserve_frac: float = 0.25
+    battery_capacity_wh: float = 100.0
 
     def to_config(self) -> SimConfig:
         cfg = SimConfig()
@@ -84,6 +95,13 @@ class Scenario:
         cfg.safety_enabled = self.safety_enabled
         cfg.landmark_enabled = self.landmark_enabled
         cfg.factorgraph_enabled = self.factorgraph_enabled
+        cfg.detector_consensus = self.detector_consensus
+        cfg.mission_aware = self.mission_aware
+        cfg.base_pos = self.base_pos
+        cfg.rtl_speed = self.rtl_speed
+        cfg.rtl_radius_m = self.rtl_radius_m
+        cfg.energy_reserve_frac = self.energy_reserve_frac
+        cfg.battery_capacity_wh = self.battery_capacity_wh
 
         # Build a SensorConfig from the serialisable descriptor.
         cfg.sensor_kwargs = {
