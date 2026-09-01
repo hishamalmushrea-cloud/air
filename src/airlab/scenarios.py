@@ -69,7 +69,7 @@ class Scenario:
     factorgraph_enabled: bool = True
 
     # Consensus policy between the independent detectors
-    # ("min" / "max" / "geom" / "adaptive"); adaptive is the recommended default.
+    # ("min" / "max" / "geom" / "adaptive" / "weighted" / "adaptive_weighted"); adaptive is the recommended default.
     detector_consensus: str = "adaptive"
     # Soft->worst-of escalation line when detector_consensus == "adaptive".
     adaptive_escalate: float = 0.65

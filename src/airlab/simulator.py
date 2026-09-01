@@ -72,9 +72,10 @@ class SimConfig:
         #   "min"     -> worst-of (OR): any bad detector triggers  (most conservative)
         #   "max"     -> best-of (AND): both must agree a fault exists (least alarm)
         #   "geom"    -> geometric mean (soft consensus)
-        #   "adaptive"-> soft while it vouches for the sensors, escalate to
-        #                worst-of once even the soft consensus drops below the
-        #                detector warning line.
+        #   "weighted"/"adaptive_weighted" -> availability-weighted soft
+        #                consensus: a detector with little local data (few
+        #                landmarks, under-determined graph) is down-weighted,
+        #                so it cannot force a decision on thin evidence.
         # ``adaptive`` is the default: it keeps `min`-level crash protection on
         # deep faults (0.841 vs 0.845 landed at bias.25) while cutting the
         # benign-fault mission cost by ~33% (0.142 vs 0.212).  See
@@ -223,8 +224,11 @@ class Simulator:
         self._last_flow_mismatch = 0.0
         self._landmark_score = 1.0
         self._landmark_residual = 0.0
+        self._landmark_obs_count = 0    # observed landmarks in latest frame
         self._factorgraph_health = 1.0
         self._factorgraph_residual = 0.0
+        self._fg_flow_components = 0     # flow factors used in last optimisation
+        self._fg_converged = False
         # Startup calibration of the factor-graph healthy baseline.
         self._fg_calibrated = False
         self._fg_baseline = None
@@ -241,6 +245,30 @@ class Simulator:
         self.flow_rejected = False
         self._flow_reject_reason = "none"
 
+    def _detector_weight(self, kind: str) -> float:
+        """Local measurement-availability weight for a detector.
+
+        This is deliberately *not* derived from the detector's own verdict
+        (a faulty detector must not down-weight itself and hide the fault).  It
+        only measures whether the detector had enough local data to form an
+        opinion:
+
+          landmark : fraction of the min useful landmark count actually seen
+                     (a camera in a feature-poor area is a weak voice)
+          factorgraph : fraction of the graph's minimum factor count actually
+                     available (a graph with too few factors is under-determined)
+        """
+        if kind == "landmark":
+            return float(np.clip(self._landmark_obs_count / 3.0, 0.0, 1.0))
+        if kind == "factorgraph":
+            if not self.factorgraph_health_trusted:
+                return 0.0
+            comp = self._fg_flow_components
+            base = float(np.clip(comp / max(self.factorgraph.min_keyframes, 1), 0.0, 1.0))
+            conv = 1.0 if self._fg_converged else 0.5
+            return float(base * conv)
+        return 1.0
+
     def _combine_detectors(self, parts: list[float]) -> float:
         """Combine independent detector healths using the consensus policy.
 
@@ -252,6 +280,10 @@ class Simulator:
                   warn threshold, escalate to the worst-of opinion.  This keeps
                   mild (survivable) faults from forcing a needless landing while
                   still escalating decisively on deep (diverging) faults.
+        "weighted" / adaptive soft uses a *measured-availability weighted*
+        geometric mean: a detector with little local data (few landmarks, an
+        under-determined graph) is down-weighted so it cannot force a decision
+        on thin evidence, while a detector with good data keeps its full voice.
         """
         if not parts:
             return 1.0
@@ -259,14 +291,39 @@ class Simulator:
         mode = self.cfg.detector_consensus
         if mode == "max":            # AND: both must agree there is a fault
             return float(np.max(a))
-        if mode == "geom":           # soft consensus
-            return float(np.sqrt(np.prod(np.clip(a, 1e-9, 1.0))))
-        if mode == "adaptive":
-            soft = float(np.sqrt(np.prod(np.clip(a, 1e-9, 1.0))))
+        if mode in ("geom", "adaptive", "weighted", "adaptive_weighted"):
+            w = self._consensus_weights(len(parts))
+            soft_uw = float(np.sqrt(np.prod(np.clip(a, 1e-9, 1.0))))
+            soft_w = self._weighted_geom(a, w)
+            if mode == "geom":
+                return soft_uw
+            if mode == "weighted":
+                return soft_w
+            # adaptive (unweighted soft) / adaptive_weighted (availability-
+            # weighted soft): escalate to worst-of when the soft opinion fails.
+            soft = soft_uw if mode == "adaptive" else soft_w
             if soft >= self.safety.cfg.adaptive_escalate:
                 return soft
-            return float(np.min(a))  # escalate to worst-of once soft fails
+            return float(np.min(a))
         return float(np.min(a))      # "min" / default: OR, worst-of
+
+    def _consensus_weights(self, n: int) -> np.ndarray:
+        """Per-detector availability weights (landmark, factorgraph)."""
+        kinds = ("landmark", "factorgraph")
+        w = []
+        for i in range(n):
+            kind = kinds[i] if i < len(kinds) else "landmark"
+            w.append(self._detector_weight(kind))
+        w = np.asarray(w, dtype=float)
+        # At most one detector may be missing weight in a single-monitor mode.
+        if w.sum() <= 1e-9:
+            return np.ones(n) / n
+        return w / w.sum()
+
+    def _weighted_geom(self, a: np.ndarray, w: np.ndarray) -> float:
+        eps = 1e-9
+        raw = np.exp(np.sum(w * np.log(np.clip(a, eps, 1.0))))
+        return float(np.clip(raw, 0.0, 1.0))
 
     def _make_vehicle(self, cfg: SimConfig) -> Quadrotor:
         return Quadrotor(**cfg.vehicle_kwargs)
@@ -558,6 +615,7 @@ class Simulator:
             # when flow is disabled; it only needs the camera + known world.
             if lm_acc >= landmark_period - 1e-9:
                 ids, dirs = self.landmark_field.observe(self.vehicle)
+                self._landmark_obs_count = len(ids)
                 self._landmark_score = self.landmark_consistency.evaluate(
                     ids, dirs, self.ekf.pos, self.ekf.rpy)
                 self._landmark_residual = self.landmark_consistency.residual
@@ -599,6 +657,8 @@ class Simulator:
                     fg_info = self.factorgraph.optimize()
                     self._factorgraph_health = fg_info["health"]
                     self._factorgraph_residual = fg_info["flow_residual"]
+                    self._fg_flow_components = int(fg_info.get("flow_components", 0))
+                    self._fg_converged = bool(fg_info.get("converged", False))
                     # Anchor the preintegrator to the graph's optimized latest
                     # pose so the next relative prediction is correct.
                     if fg_info.get("converged") and len(self.factorgraph.keyframes):

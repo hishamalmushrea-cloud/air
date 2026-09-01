@@ -297,6 +297,21 @@ class TestScenario(unittest.TestCase):
         cfg.detector_consensus = "geom"
         self.assertAlmostEqual(sim._combine_detectors(parts), np.sqrt(0.18))
 
+        # Availability-weighted soft consensus: when the landmark detector has
+        # no usable data it is down-weighted, so its (possibly misleading) low
+        # score should not drag the consensus down as far as an unweighted geom.
+        cfg.detector_consensus = "geom"
+        sim._landmark_obs_count = 0        # no landmarks available
+        sim._fg_flow_components = 0        # no factor-graph data either (full under-determination)
+        self.assertGreater(sim._combine_detectors([0.9, 0.2]), 0.0)
+        sim._landmark_obs_count = 3        # landmark detector has good data now
+        sim._fg_flow_components = 0        # but the graph is thin
+        weighted_low_info = sim._combine_detectors([0.9, 0.2])
+        # A weighted consensus should be >= the unweighted geometric mean when
+        # one detector is under-informed, so a thin detector cannot force a
+        # hard reaction on weak evidence.
+        self.assertGreater(weighted_low_info, np.sqrt(0.18))
+
     def test_adaptive_consensus_escalates_only_when_degraded(self):
         cfg = SimConfig()
         sim = Simulator(cfg)

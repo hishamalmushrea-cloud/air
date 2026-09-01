@@ -135,21 +135,21 @@ sensor-fusion layer is designed to close.
 
 ## Roadmap (current thinking)
 
-The repo is at **Stage 12** of the longer research program. The next stages in
+The repo is at **Stage 13** of the longer research program. The next stages in
 order of value:
 
-1. **Adaptive consensus is the default and its escalation line is tuned.**
-   `detector_consensus = "adaptive"` soft consensus→worst-of escalation, and
-   `adaptive_escalate = 0.65` is decoupled from the warning line.  The
-   escalation sweep (`docs/research-brief-11.md`) found `adaptive@0.65` is the
-   best point: bias.25 landed 0.851 (≥ min 0.848), crash 0, **zero healthy
-   false alarm** (min false-lands 0.195 on healthy in this grid), benign mission
-   cost 0.105 vs min 0.175.
-2. **n≥30 grid** — confirm the 0.65 vs 0.55 difference and the healthy `min`
-   false-alarm finding.
-3. **Weighted soft consensus** — weight by which monitor is more locally
-   trustworthy (the landmark detector is cheap and geometry-only; the factor
-   graph is more sensitive).
+1. **Adaptive consensus is the default; escalation line tuned (0.65); and an
+   availability-weighted soft consensus is implemented.**  `weighted` /
+   `adaptive_weighted` down-weight a detector with little local data (few
+   visible landmarks, an under-determined or unconverged factor graph) so it
+   cannot force a decision on thin evidence.  On the current dense-field grid
+   both detectors always have full data, so they are identical to `adaptive`
+   — the weighting is a **design-in guardrail for feature-poor flight** with no
+   cost in a well-observed environment (see `docs/research-brief-12.md`).
+2. **Inject detector-poor scenarios** (landmark outage window, sparse factor
+   graph) to actually exercise the weighting.
+3. **Learned "trust this frame" model** to replace the hand-set availability
+   weight with a per-frame confidence.
 2. **Mission-aware RTL is opt-in and honestly limited.**  A ramping corrupt
    velocity source corrupts navigation before detection, so RTL is a guess
    there.  The useful design-in pieces (early source rejection, GPS-only state

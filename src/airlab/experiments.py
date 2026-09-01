@@ -550,6 +550,8 @@ def consensus_study(
             ("max",   True, True, "max"),
             ("geom",  True, True, "geom"),
             ("adaptive", True, True, "adaptive"),
+            ("weighted", True, True, "weighted"),
+            ("adaptive_weighted", True, True, "adaptive_weighted"),
         ]
     rows = []
     for fault in faults:
@@ -629,6 +631,8 @@ def consensus_main(argv=None) -> int:
         "max": ("max", True, True, "max"),
         "geom": ("geom", True, True, "geom"),
         "adaptive": ("adaptive", True, True, "adaptive"),
+        "weighted": ("weighted", True, True, "weighted"),
+        "adaptive_weighted": ("adaptive_weighted", True, True, "adaptive_weighted"),
     }
     unknown_p = [p for p in pol_names if p not in _policies]
     if unknown_p:
