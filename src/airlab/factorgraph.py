@@ -107,6 +107,7 @@ class SlidingFactorGraph:
         max_iter: int = 12,
         min_keyframes: int = 4,
         baseline_residual: float = 0.0,   # subtracted before health mapping
+        bias_reg: float = 1.0,            # weight on bias-vs-zero residual
     ) -> None:
         self.landmarks = np.asarray(landmark_positions, dtype=float).reshape(-1, 3)
         self.window = window
@@ -116,6 +117,7 @@ class SlidingFactorGraph:
         self.max_iter = max_iter
         self.min_keyframes = min_keyframes
         self.baseline_residual = baseline_residual
+        self.bias_reg = bias_reg
 
         self.keyframes: list[Keyframe] = []
         self.flow_residual = 0.0
@@ -126,6 +128,10 @@ class SlidingFactorGraph:
         self._last_flow_residuals = np.zeros(0)
         self.aux_positions = {}   # keep for optional diagnostics
         self.aux_velocities = {}
+        # Shared accel-bias estimate (NED), estimated inside the graph.  It is
+        # deliberately NOT borrowed from the flow-fed EKF, so a corrupt flow
+        # cannot contaminate the "independent" IMU motion model.
+        self.bias = np.zeros(3)
 
     # ------------------------------------------------------------------ #
     # data
@@ -138,13 +144,21 @@ class SlidingFactorGraph:
     def clear(self) -> None:
         self.keyframes.clear()
 
-    def _n_vars(self) -> int:
+    def _n_pose_vars(self) -> int:
         return len(self.keyframes)
+
+    def _n_vars(self) -> int:
+        # 6 vars (p,v) per keyframe + shared accel bias (3)
+        return 6 * len(self.keyframes) + 3
+
+    def _bias_start(self) -> int:
+        return 6 * len(self.keyframes)
 
     def _x0(self) -> np.ndarray:
         x = []
         for k in self.keyframes:
             x.extend([k.p0[0], k.p0[1], k.p0[2], k.v0[0], k.v0[1], k.v0[2]])
+        x.extend([self.bias[0], self.bias[1], self.bias[2]])
         return np.asarray(x, dtype=float)
 
     def _block_from_index(self, k: int) -> np.ndarray:
@@ -156,23 +170,29 @@ class SlidingFactorGraph:
     def _vel(self, X: np.ndarray, k: int) -> np.ndarray:
         return X[6 * k + 3:6 * k + 6]
 
+    def _bias(self, X: np.ndarray) -> np.ndarray:
+        return X[self._bias_start():self._bias_start() + 3]
+
     # ------------------------------------------------------------------ #
     # residual model.  Returns (r_vec, split, names).
     # split is a list of slices per factor contribution.
     # ------------------------------------------------------------------ #
     def _residuals(self, X: np.ndarray):
-        n = self._n_vars()
+        n = self._n_pose_vars()
         r = []
         names = []
         slices = []
         flow_slice = {}
 
         # ---- IMU factors (between consecutive keyframes) ----
+        # We subtract the graph's *own* estimated bias, so a corrupt flow cannot
+        # contaminate the IMU model through the EKF's bias estimate.
+        bias_est = self._bias(X)
         for k in range(n - 1):
             dt = self.keyframes[k].dt_to_next
             if dt <= 1e-6:
                 continue
-            a = self.keyframes[k].acc_ned
+            a = self.keyframes[k].acc_ned - bias_est
             p_k, p_k1 = self._pos(X, k), self._pos(X, k + 1)
             v_k, v_k1 = self._vel(X, k), self._vel(X, k + 1)
             # trapezoidal position + velocity update
@@ -228,6 +248,13 @@ class SlidingFactorGraph:
                     names.append("lm")
                     lm_slices.append((start, start + 1))
 
+        # ---- bias prior: keep the estimated IMU bias small ----
+        bias_res = bias_est
+        start = len(r)
+        r.extend([bias_res[0], bias_res[1], bias_res[2]])
+        slices.append((start, start + 3))
+        names.append("bias_prior")
+
         return np.asarray(r, dtype=float), slices, names, flow_slice, lm_slices
 
     # ------------------------------------------------------------------ #
@@ -256,17 +283,16 @@ class SlidingFactorGraph:
         keyframe's position block, and those are small and computed in closed
         form.  This keeps the whole optimizer fast enough to run inline.
         """
-        n = self._n_vars()
+        n = self._n_pose_vars()
+        ncols = 6 * n + 3
         if n == 0:
-            return np.zeros((0, 6 * n)), [], [], {}, []
+            return np.zeros((0, ncols)), [], [], {}, []
 
         # First pass: dimensions / slices (same layout as _residuals).
         r0, slices, names, flow_slice, lm_slice = self._residuals(X)
         m = len(r0)
-        J = np.zeros((m, 6 * n))
-
-        def idx(pos: int) -> int:
-            return 6 * pos
+        J = np.zeros((m, ncols))
+        bstart = self._bias_start()
 
         # ---- IMU (linear between consecutive keyframes) ----
         row = 0
@@ -283,10 +309,12 @@ class SlidingFactorGraph:
                 J[row, base + 3 + c] = -0.5 * dt
                 J[row, nxt + 3 + c] = -0.5 * dt
                 row += 1
-            # rv = v_{k+1} - v_k - a dt
+            # rv = v_{k+1} - v_k - (a_raw - b) dt
+            # d(rv)/db = +dt * I
             for c in range(3):
                 J[row, base + 3 + c] = -1.0
                 J[row, nxt + 3 + c] = 1.0
+                J[row, bstart + c] = dt
                 row += 1
 
         # ---- flow (linear: v_k - flow) ----
@@ -336,6 +364,11 @@ class SlidingFactorGraph:
                     J[row, base:base + 3] = dtheta_dp
                     row += 1
 
+        # ---- bias prior row: r_b = b  => d(r_b)/db = I ----
+        for c in range(3):
+            J[row, bstart + c] = 1.0
+            row += 1
+
         return J, slices, names, flow_slice, lm_slice
 
     # ------------------------------------------------------------------ #
@@ -346,11 +379,12 @@ class SlidingFactorGraph:
         return 1.0 / (1.0 + (r * r) / c2)
 
     def optimize(self, verbose: bool = False) -> dict:
-        n = self._n_vars()
+        n = self._n_pose_vars()
         if n < self.min_keyframes:
             return {"iterations": 0, "converged": False,
                     "flow_residual": 0.0, "lm_residual": 0.0,
-                    "total_residual": 0.0, "health": 1.0}
+                    "total_residual": 0.0, "health": 1.0,
+                    "bias_est": self.bias.copy()}
         X = self._x0()
 
         def residual_fn(Xx):
@@ -363,6 +397,11 @@ class SlidingFactorGraph:
             F, _, _, flow_slice, lm_slice = self._analytic_jacobian(X)
             r, _, _, flow_slice, lm_slice = residual_fn(X)
             w = self._cauchy_weights(r)
+            # Bias-prior residual is not an outlier; it is a regulariser, so it
+            # keeps a fixed (unrobust) weight.
+            n_bias_first = len(r) - 3
+            if n_bias_first >= 0:
+                w[n_bias_first:n_bias_first + 3] = self.bias_reg
             W = np.sqrt(w)
             # Normal equations with robust weight (IRLS) + LM damping.
             A = (W[:, None] * F).T @ (W[:, None] * F)
@@ -411,11 +450,13 @@ class SlidingFactorGraph:
 
         # Warm start: write the optimized state back into the keyframes so the
         # next call does not start from the (flow-fed / far) initial guess.
+        # The estimated IMU bias is kept on the graph itself, not the keyframes.
         for k in range(n):
             self.keyframes[k].p0 = self._pos(X, k).copy()
             self.keyframes[k].v0 = self._vel(X, k).copy()
             self.aux_positions[k] = self._pos(X, k).copy()
             self.aux_velocities[k] = self._vel(X, k).copy()
+        self.bias = self._bias(X).copy()
 
         return {
             "iterations": it + 1,
@@ -425,6 +466,7 @@ class SlidingFactorGraph:
             "total_residual": self.total_residual,
             "health": health,
             "flow_components": len(flow_resids),
+            "bias_est": self.bias.copy(),
         }
 
 

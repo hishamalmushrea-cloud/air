@@ -134,18 +134,17 @@ sensor-fusion layer is designed to close.
 
 ## Roadmap (current thinking)
 
-The repo is at **Stage 6** of the longer research program. The next stages in
+The repo is at **Stage 7** of the longer research program. The next stages in
 order of value:
 
-1. **Make the factor-graph IMU factor fully independent** — estimate IMU bias
-   inside the graph (or use graph-own preintegration) instead of borrowing the
-   flow-fed EKF bias.  This is the single highest-value change; it should make
-   the calibrated factor graph replace the landmark detector as the live signal
-   (see `docs/research-brief-05.md`).
-2. **Consensus of two monitors** — run the landmark detector as primary and the
+1. **Larger statistical live study (n≥10)** — before promoting the factor graph
+   to live, measure a reliable crash-vs-detector curve per fault/seed.
+2. **Faster FG safety reaction** — couple FG health directly to the LAND trigger
+   so a detected fault converts to a *land*, not only a transient HOLD.
+3. **Consensus of two monitors** — run the landmark detector as primary and the
    calibrated factor graph as a cross-check (two structurally different
    opinions).
-3. **Richer landmark geometry** — higher rate, landmark persistence and a
+4. **Richer landmark geometry** — higher rate, landmark persistence and a
    learned "trust this frame" model.
 3. **Physics fidelity v4** — motor/spin dynamics, propeller model, thermal,
    ground effect.
@@ -188,12 +187,15 @@ healthy missions still finish without false alarms.
 
 For the research-grade version, `factorgraph.py` builds a small sliding-window
 factor graph (IMU + flow + GPS + landmarks) with a Cauchy robust kernel, an IMU
-preintegrator, and a startup baseline calibration.  It now behaves as a **valid
-calibrated detector in isolation** (healthy → health ~1.0, an obvious fault →
-health ~0.05) and is tested via `run_factorgraph_live.py`.  It is still **opt-in**
-because the graph's IMU factor depends on the EKF's accel-bias estimate, so a
-corrupt flow can contaminate it; the landmark detector remains the live signal
-(see `docs/research-brief-05.md`).
+preintegrator, a startup baseline calibration, and its **own in-graph IMU
+accel-bias estimate** (so it no longer borrows the flow-fed EKF bias).  It now
+behaves as a **valid calibrated detector in isolation** (healthy → no false
+alarm, an obvious fault → health ~0.05) and is tested via
+`run_factorgraph_live.py`.  Critically, the bias prior must be strong enough
+(`bias_reg` ≥ 0.2) or the graph will *absorb the flow fault into its bias* and
+fail to detect it.  It is still **opt-in** because across random seeds at the
+hardest fault it does not yet beat seed noise; the landmark detector remains the
+live signal (see `docs/research-brief-06.md`).
 
 ---
 

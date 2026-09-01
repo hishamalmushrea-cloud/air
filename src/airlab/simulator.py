@@ -408,10 +408,14 @@ class Simulator:
                     ids_here, dirs_here = self.landmark_field.observe(self.vehicle)
                     # Seed the graph from the IMU preintegrator (clean relative
                     # pose since the last trusted anchor), NOT the flow-fed EKF.
+                    # Pass RAW accelerometer (no EKF bias subtraction): the
+                    # graph estimates its own bias from the independent
+                    # landmark/GPS geometry, so a corrupt flow cannot
+                    # contaminate the IMU model.
                     kf = build_keyframe(
                         self.imu_preint.predict_pos(),
                         self.imu_preint.predict_vel(),
-                        self.last_imu.accel - self.ekf.accel_bias,
+                        self.last_imu.accel,
                         self.ahrs.rpy,
                         factorgraph_period,
                         flow_here, gps_pos, gps_vel,
