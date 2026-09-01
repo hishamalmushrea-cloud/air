@@ -345,6 +345,92 @@ def landmark_main(argv=None) -> int:
     return 0
 
 
+def factorgraph_live_study(
+    faults: list[dict] | None = None,
+    n_per_cell: int = 3,
+    duration: float = 40.0,
+    seed: int = 77,
+) -> list[dict]:
+    """Ablate the *calibrated factor graph as a live safety signal*.
+
+    Safety layer ON in every cell.  We compare:
+      - factor-graph live detector ON (landmark detector OFF, so the FG is the
+        only independent signal)
+      - factor-graph live detector OFF (landmark detector OFF too, so nothing
+        independent is watching — only the flow self-report)
+
+    This directly answers: "now that the FG is calibrated, does it convert a
+    corrupt velocity fault into a safe reaction without false alarms on a
+    healthy mission?"
+    """
+    if faults is None:
+        faults = [
+            {"name": "none",     "scale": 1.0, "bias_ramp": 0.0},
+            {"name": "scale1.5", "scale": 1.5, "bias_ramp": 0.0},
+            {"name": "bias.25",  "scale": 1.0, "bias_ramp": 0.25},
+            {"name": "bias.1",   "scale": 1.0, "bias_ramp": 0.10},
+        ]
+
+    rng = np.random.default_rng(seed)
+    base = [random_scenario(rng, duration=duration, index=k) for k in range(n_per_cell)]
+    rows = []
+    for fault in faults:
+        for fg_enabled in (True, False):
+            scenarios = []
+            for s in base:
+                s2 = Scenario(**{**s.as_dict(),
+                                "flow_scale": float(fault["scale"]),
+                                "flow_bias_ramp": float(fault["bias_ramp"]),
+                                "safety_enabled": True,
+                                "landmark_enabled": False,
+                                "factorgraph_enabled": fg_enabled})
+                scenarios.append(s2)
+            metrics_list = []
+            for s in scenarios:
+                m, _ = run_scenario(s, record=False)
+                metrics_list.append(m)
+            agg = average_of_metrics(metrics_list, [
+                "in_bounds_frac", "crash", "landed", "safety_fraction",
+            ])
+            outcomes = [m.get("safety_outcome", "none") for m in metrics_list]
+            row = {
+                "flow_fault": fault["name"],
+                "flow_scale": float(fault["scale"]),
+                "flow_bias_ramp": float(fault["bias_ramp"]),
+                "fg_live": "on" if fg_enabled else "off",
+                "n": n_per_cell,
+                "mean_in_bounds": agg.get("in_bounds_frac", float("nan")),
+                "mean_crash": agg.get("crash", float("nan")),
+                "mean_landed": agg.get("landed", float("nan")),
+                "mean_safety_fraction": agg.get("safety_fraction", float("nan")),
+                "outcomes": ";".join(outcomes),
+            }
+            rows.append(row)
+            print(f"[fg-live] fault={fault['name']:8s} "
+                  f"fg_live={'on ' if fg_enabled else 'off'} "
+                  f"in_bounds={row['mean_in_bounds']:.3f} "
+                  f"crash={row['mean_crash']:.3f} "
+                  f"landed={row['mean_landed']:.3f} "
+                  f"outcome={row['outcomes']}")
+    return rows
+
+
+def factorgraph_live_main(argv=None) -> int:
+    import argparse
+    ap = argparse.ArgumentParser(description="Ablate the calibrated factor-graph live safety signal")
+    ap.add_argument("--n", type=int, default=3)
+    ap.add_argument("--duration", type=float, default=40.0)
+    ap.add_argument("--seed", type=int, default=77)
+    ap.add_argument("--out", type=str, default="out/factorgraph_live.csv")
+    args = ap.parse_args(argv)
+
+    rows = factorgraph_live_study(n_per_cell=args.n, duration=args.duration,
+                                  seed=args.seed)
+    write_csv(rows, args.out)
+    print(f"[fg-live] wrote {args.out}")
+    return 0
+
+
 def factorgraph_detector_study(
     faults: list[dict] | None = None,
     n_per_cell: int = 3,

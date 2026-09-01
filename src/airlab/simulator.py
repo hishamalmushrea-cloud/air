@@ -21,7 +21,7 @@ from .metrics import evaluate_mission
 from .safety import (SafetyMonitor, SafetyConfig, CRUISE, HOLD, LAND, LANDED,
                      VelocityIntegrityMonitor)
 from .landmarks import LandmarkField, LandmarkConsistency
-from .factorgraph import SlidingFactorGraph, build_keyframe
+from .factorgraph import SlidingFactorGraph, build_keyframe, ImuPreintegrator
 
 
 class SimConfig:
@@ -172,6 +172,11 @@ class Simulator:
         # IMU-only dead-reckon position, independent of the flow-fed EKF.
         self._dr_pos = self.vehicle.pos.copy()
         self._dr_vel = self.vehicle.vel.copy()
+        # Proper IMU preintegrator (re-anchored to GPS and to the factor graph's
+        # optimized last keyframe), so the graph is seeded from a clean relative
+        # pose rather than a drifted absolute dead-reckon.
+        self.imu_preint = ImuPreintegrator()
+        self.imu_preint.reset(self.vehicle.pos, self.vehicle.vel)
         self.landmark_field = LandmarkField()
         self.landmark_consistency = LandmarkConsistency(self.landmark_field)
         self.factorgraph = SlidingFactorGraph(self.landmark_field.positions,
@@ -187,6 +192,10 @@ class Simulator:
         self._landmark_residual = 0.0
         self._factorgraph_health = 1.0
         self._factorgraph_residual = 0.0
+        # Startup calibration of the factor-graph healthy baseline.
+        self._fg_calibrated = False
+        self._fg_baseline = None
+        self._fg_calibration_samples = []
 
     def _make_vehicle(self, cfg: SimConfig) -> Quadrotor:
         return Quadrotor(**cfg.vehicle_kwargs)
@@ -330,6 +339,10 @@ class Simulator:
             gyro_corr = self.last_imu.gyro - self.ekf.gyro_bias
             self.flow_integrity.predict(acc_corr, gyro_corr, dt)
             self._dr_pos += self.flow_integrity.vel * dt
+            # Feed the IMU preintegrator from the same corrected measurements.
+            R_nb = self.vehicle.R_nb
+            acc_ned = R_nb @ acc_corr + np.array([0.0, 0.0, 9.80665])
+            self.imu_preint.feed(acc_ned, dt, self.ahrs.rpy)
 
             if t_acc >= imu_period - 1e-9:
                 t_acc = 0.0
@@ -393,14 +406,11 @@ class Simulator:
                     if self.cfg.flow_enabled:
                         flow_here = self.sensors.sample_flow(self.vehicle)
                     ids_here, dirs_here = self.landmark_field.observe(self.vehicle)
-                    # Use the *bias-corrected* acceleration in the IMU factor
-                    # so the graph's propagation matches the real (estimated)
-                    # specific force rather than the biased raw measurement.
-                    # The keyframe's initial estimate comes from an *IMU-only
-                    # dead-reckon* (not the flow-fed EKF) so the factor graph
-                    # is independent of the estimator it is watching.
+                    # Seed the graph from the IMU preintegrator (clean relative
+                    # pose since the last trusted anchor), NOT the flow-fed EKF.
                     kf = build_keyframe(
-                        self._dr_pos, self.flow_integrity.vel,
+                        self.imu_preint.predict_pos(),
+                        self.imu_preint.predict_vel(),
                         self.last_imu.accel - self.ekf.accel_bias,
                         self.ahrs.rpy,
                         factorgraph_period,
@@ -411,6 +421,28 @@ class Simulator:
                     fg_info = self.factorgraph.optimize()
                     self._factorgraph_health = fg_info["health"]
                     self._factorgraph_residual = fg_info["flow_residual"]
+                    # Anchor the preintegrator to the graph's optimized latest
+                    # pose so the next relative prediction is correct.
+                    if fg_info.get("converged") and len(self.factorgraph.keyframes):
+                        last = self.factorgraph.keyframes[-1]
+                        self.imu_preint.reset(last.p0, last.v0)
+
+                    # Startup calibration: while GNSS is available and we have
+                    # a trusted absolute reference, collect the residual of a
+                    # *healthy* mission and use a robust high percentile as the
+                    # baseline.  Using the mean underestimates the healthy
+                    # motion floor and causes false HOLD during turns; using a
+                    # robust high percentile makes a healthy flight map to
+                    # health~1.0 while a real fault (residual >> floor) is
+                    # still clearly detected.
+                    if not self._fg_calibrated and gps_ok:
+                        self._fg_calibration_samples.append(fg_info["flow_residual"])
+                        if len(self._fg_calibration_samples) >= 6:
+                            samples = np.sort(np.asarray(self._fg_calibration_samples))
+                            idx = int(0.9 * (len(samples) - 1))
+                            self._fg_baseline = float(samples[idx])
+                            self.factorgraph.baseline_residual = self._fg_baseline
+                            self._fg_calibrated = True
                 fg_acc = 0.0
 
             if gps_acc >= gps_period - 1e-9:
@@ -423,6 +455,9 @@ class Simulator:
                     self.flow_integrity.reset(self.ekf.vel, self.ekf.rpy)
                     self._dr_pos = self.ekf.pos.copy()
                     self._dr_vel = self.ekf.vel.copy()
+                    # Re-anchor the preintegrator so its relative prediction
+                    # does not carry an old start-pose drift forward.
+                    self.imu_preint.reset(self.ekf.pos, self.ekf.vel)
                 gps_acc = 0.0
 
             if record:

@@ -217,6 +217,40 @@ class TestScenario(unittest.TestCase):
         # And the landmark detector should stay reasonably healthy throughout.
         self.assertTrue(np.min(np.asarray(r.landmark_score)) > 0.8)
 
+    def test_calibrated_factor_graph_no_false_alarm_healthy(self):
+        # Live factor graph with startup calibration should not trigger
+        # safety on a healthy mission.
+        cfg = SimConfig()
+        cfg.duration = 40.0
+        cfg.gps_outage = (12.0, 24.0)
+        cfg.flow_bias_ramp = 0.0
+        cfg.factorgraph_enabled = True
+        cfg.landmark_enabled = False
+        sim = Simulator(cfg)
+        r = sim.run(record=True)
+        m = safety_metrics(r, cfg.dt)
+        self.assertEqual(m["safety_outcome"], "completed")
+        self.assertEqual(m["safety_fraction"], 0.0)
+        self.assertGreater(np.mean(np.asarray(r.factorgraph_health)), 0.7)
+
+    def test_calibrated_factor_graph_detects_large_bias(self):
+        cfg = SimConfig()
+        cfg.duration = 40.0
+        cfg.gps_outage = (12.0, 24.0)
+        cfg.flow_bias_ramp = 0.25
+        cfg.factorgraph_enabled = True
+        cfg.landmark_enabled = False
+        sim = Simulator(cfg)
+        r = sim.run(record=True)
+        m = safety_metrics(r, cfg.dt)
+        # With a large bias the calibrated factor graph must at least react
+        # (reactive_hold / landed), and must reduce unintended ground contact
+        # to near zero (it is honest to allow a tiny transient, unlike the
+        # ~0.08 crash fraction when the detector is off entirely).
+        self.assertGreater(m["safety_fraction"], 0.0)
+        self.assertLess(m["crash"], 0.01)
+        self.assertIn(m["safety_outcome"], ("reactive_hold", "landed_safely"))
+
     def test_factor_graph_detects_large_flow_bias(self):
         """A big ramping bias must drive the factor-graph flow residual up."""
         field = LandmarkField()

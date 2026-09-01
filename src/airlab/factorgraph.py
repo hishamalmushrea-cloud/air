@@ -32,6 +32,57 @@ import numpy as np
 from .math_utils import euler_to_R, GRAVITY_NED
 
 
+class ImuPreintegrator:
+    """Preintegrate the IMU specific force over a sliding relative interval.
+
+    The naive approach in the first version seeded the factor-graph state with
+    a *full-pose dead-reckon that had already drifted since the last absolute
+    reference*.  That made the healthy baseline high.  A proper IMU
+    preintegrator instead produces a **relative** velocity/position change over
+    a short window and is re-anchored to the latest trusted state, so the graph
+    starts much closer to the true geometry and the flow residual is then
+    dominated by genuine inconsistency rather than dead-reckon drift.
+
+    This is a minimal, transparent implementation: bias-corrected acceleration
+    rotated by the AHRS attitude, integrated once per IMU step.
+    """
+
+    def __init__(self) -> None:
+        self.delta_v = np.zeros(3)
+        self.delta_p = np.zeros(3)
+        self.n_steps = 0
+        self.start_vel = None
+        self.start_pos = None
+        self.total_dt = 0.0
+
+    def reset(self, pos: np.ndarray, vel: np.ndarray) -> None:
+        self.start_pos = np.asarray(pos, dtype=float).reshape(3).copy()
+        self.start_vel = np.asarray(vel, dtype=float).reshape(3).copy()
+        self.delta_v = np.zeros(3)
+        self.delta_p = np.zeros(3)
+        self.n_steps = 0
+        self.total_dt = 0.0
+
+    def feed(self, acc_ned: np.ndarray, dt: float, rpy: np.ndarray) -> np.ndarray:
+        """Feed one bias-corrected accelerometer sample (rotated to NED).
+
+        Returns the current dead-reckoned velocity estimate (absolute, based
+        on ``start_vel`` plus accumulated delta-v).  The dead-reckoned position
+        is available via ``predict_pos``.
+        """
+        self.delta_v += np.asarray(acc_ned, dtype=float).reshape(3) * dt
+        self.delta_p += self.delta_v * dt
+        self.n_steps += 1
+        self.total_dt += dt
+        return self.start_vel + self.delta_v
+
+    def predict_pos(self) -> np.ndarray:
+        return self.start_pos + self.start_vel * self.total_dt + self.delta_p
+
+    def predict_vel(self) -> np.ndarray:
+        return self.start_vel + self.delta_v
+
+
 @dataclass
 class Keyframe:
     p0: np.ndarray             # initial position estimate (NED)
@@ -52,9 +103,10 @@ class SlidingFactorGraph:
         window: int = 6,
         dt_keyframe: float = 0.5,
         cauchy_scale: float = 0.10,
-        residual_scale: float = 0.06,     # m/s mapping residual -> health
+        residual_scale: float = 0.20,     # m/s mapping residual -> health
         max_iter: int = 12,
         min_keyframes: int = 4,
+        baseline_residual: float = 0.0,   # subtracted before health mapping
     ) -> None:
         self.landmarks = np.asarray(landmark_positions, dtype=float).reshape(-1, 3)
         self.window = window
@@ -63,6 +115,7 @@ class SlidingFactorGraph:
         self.residual_scale = residual_scale
         self.max_iter = max_iter
         self.min_keyframes = min_keyframes
+        self.baseline_residual = baseline_residual
 
         self.keyframes: list[Keyframe] = []
         self.flow_residual = 0.0
@@ -343,8 +396,11 @@ class SlidingFactorGraph:
         lm_resids = [float(abs(r[s:e][0])) for s, e in lm_slice]
         mean_lm = float(np.mean(lm_resids)) if lm_resids else 0.0
 
-        # health: 1.0 when residual ~ 0, -> ~0 when residual >> scale.
-        health = 1.0 / (1.0 + mean_flow / self.residual_scale)
+        # health: 1.0 when residual ~ baseline (healthy), -> ~0 when residual
+        # is an outlier relative to the calibrated healthy baseline.  This is
+        # the calibration step that makes a healthy mission map to health~1.0.
+        excess = max(0.0, mean_flow - self.baseline_residual)
+        health = 1.0 / (1.0 + excess / self.residual_scale)
         health = float(np.clip(health, 0.0, 1.0))
 
         self.flow_residual = mean_flow

@@ -56,7 +56,7 @@ of the stack is inspectable and replaceable.
 | `src/airlab/energy.py` | lightweight mission power/energy model |
 | `src/airlab/safety.py` | uncertainty-aware safety FSM (`CRUISE/HOLD/LAND/LANDED`) + integrity monitor |
 | `src/airlab/landmarks.py` | independent landmark-field consistency detector |
-| `src/airlab/factorgraph.py` | sliding-window nonlinear factor graph + robust flow-residual detector |
+| `src/airlab/factorgraph.py` | sliding-window nonlinear factor graph + IMU preintegrator + robust flow-residual detector |
 | `src/airlab/simulator.py` | orchestrator, subsystem rates, fault timing |
 | `src/airlab/metrics.py` | navigation and safety metrics |
 | `src/airlab/scenarios.py` | serializable scenario descriptors + random mission generator |
@@ -68,6 +68,7 @@ of the stack is inspectable and replaceable.
 | `run_corruption.py` | corrupt velocity-aiding + safety-layer study CLI |
 | `run_landmark.py` | independent landmark detector ablation CLI |
 | `run_factorgraph.py` | factor-graph detector characterisation CLI |
+| `run_factorgraph_live.py` | calibrated factor-graph live-detector ablation CLI |
 | `plot_results.py` | batch / degradation / corruption / landmark / factor-graph charts |
 
 ---
@@ -133,14 +134,18 @@ sensor-fusion layer is designed to close.
 
 ## Roadmap (current thinking)
 
-The repo is at **Stage 5** of the longer research program. The next stages in
+The repo is at **Stage 6** of the longer research program. The next stages in
 order of value:
 
-1. **Calibrate the factor-graph detector** — improve landmark observability /
-   data association, use proper VIO/IMU pre-integration for the independent
-   init, and calibrate the healthy baseline to ~1.0 so it can become the live
-   safety signal (see `docs/research-brief-04.md`).
-2. **Richer landmark geometry** — higher rate, landmark persistence and a
+1. **Make the factor-graph IMU factor fully independent** — estimate IMU bias
+   inside the graph (or use graph-own preintegration) instead of borrowing the
+   flow-fed EKF bias.  This is the single highest-value change; it should make
+   the calibrated factor graph replace the landmark detector as the live signal
+   (see `docs/research-brief-05.md`).
+2. **Consensus of two monitors** — run the landmark detector as primary and the
+   calibrated factor graph as a cross-check (two structurally different
+   opinions).
+3. **Richer landmark geometry** — higher rate, landmark persistence and a
    learned "trust this frame" model.
 3. **Physics fidelity v4** — motor/spin dynamics, propeller model, thermal,
    ground effect.
@@ -182,11 +187,13 @@ for the hardest fault (bias.25) from 0.00 → 0.44 at 30 s GNSS loss, while
 healthy missions still finish without false alarms.
 
 For the research-grade version, `factorgraph.py` builds a small sliding-window
-factor graph (IMU + flow + GPS + landmarks) with a Cauchy robust kernel and
-reports the post-optimisation flow residual.  It catches very large faults
-decisively (bias 2 m/s → residual ~44) but is **opt-in** because its healthy
-baseline still needs calibration/observability in aggressive missions (see
-`docs/research-brief-04.md`).
+factor graph (IMU + flow + GPS + landmarks) with a Cauchy robust kernel, an IMU
+preintegrator, and a startup baseline calibration.  It now behaves as a **valid
+calibrated detector in isolation** (healthy → health ~1.0, an obvious fault →
+health ~0.05) and is tested via `run_factorgraph_live.py`.  It is still **opt-in**
+because the graph's IMU factor depends on the EKF's accel-bias estimate, so a
+corrupt flow can contaminate it; the landmark detector remains the live signal
+(see `docs/research-brief-05.md`).
 
 ---
 

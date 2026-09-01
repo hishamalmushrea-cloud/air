@@ -224,12 +224,59 @@ def plot_factorgraph(path: str, out: str) -> None:
     print(f"[plot] factorgraph -> {out}")
 
 
+def plot_factorgraph_live(path: str, out: str) -> None:
+    rows = _read(path)
+    if not rows:
+        return
+    faults = sorted({r.get("flow_fault", "none") for r in rows})
+    markers = {"none": "o", "scale1.5": "^", "scale1.8": "v",
+               "bias.1": "X", "bias.25": "D"}
+    colors = {"on": "#2b8cbe", "off": "#de2d26"}
+    linestyles = {"on": "-", "off": "--"}
+
+    fig, ax = plt.subplots(1, 2, figsize=(12, 4.5))
+    for fault in faults:
+        for fg in ("on", "off"):
+            sub = [r for r in rows if r.get("flow_fault") == fault and r.get("fg_live") == fg]
+            if not sub:
+                continue
+            sub = sorted(sub, key=lambda r: float(r["flow_bias_ramp"]))
+            x = np.arange(len(sub))
+            marker = markers.get(fault, "o")
+            clr = colors.get(fg, "#31a354")
+            ls = linestyles.get(fg, "-")
+            crash = np.array([float(r["mean_crash"]) for r in sub])
+            landed = np.array([float(r["mean_landed"]) for r in sub])
+            label = f"{fault} / fg {fg}"
+            ax[0].plot(x, crash, marker=marker, linestyle=ls, color=clr, label=label)
+            ax[1].plot(x, landed, marker=marker, linestyle=ls, color=clr, label=label)
+    ax[0].set_xticks(np.arange(len(faults)))
+    ax[0].set_xticklabels(faults)
+    ax[0].set_ylabel("mean unintended crash")
+    ax[0].set_ylim(0, 1.1)
+    ax[0].grid(alpha=0.3)
+    ax[0].legend(fontsize=6)
+    ax[0].set_title("Factor-graph live: crash")
+    ax[1].set_xticks(np.arange(len(faults)))
+    ax[1].set_xticklabels(faults)
+    ax[1].set_ylabel("mean landed safely")
+    ax[1].set_ylim(0, 1.1)
+    ax[1].grid(alpha=0.3)
+    ax[1].legend(fontsize=6)
+    ax[1].set_title("Factor-graph live: controlled landing")
+
+    fig.tight_layout()
+    fig.savefig(out, dpi=130)
+    print(f"[plot] factorgraph live -> {out}")
+
+
 def main():
     batch = sys.argv[1] if len(sys.argv) > 1 else "out/batch.csv"
     deg = sys.argv[2] if len(sys.argv) > 2 else "out/degradation.csv"
     corr = sys.argv[3] if len(sys.argv) > 3 else "out/corruption.csv"
     lm = sys.argv[4] if len(sys.argv) > 4 else "out/landmark.csv"
     fg = sys.argv[5] if len(sys.argv) > 5 else "out/factorgraph.csv"
+    fglive = sys.argv[6] if len(sys.argv) > 6 else "out/factorgraph_live.csv"
     outdir = "out"
     if os.path.exists(batch):
         plot_batch(batch, os.path.join(outdir, "batch.png"))
@@ -241,6 +288,8 @@ def main():
         plot_landmark(lm, os.path.join(outdir, "landmark.png"))
     if os.path.exists(fg):
         plot_factorgraph(fg, os.path.join(outdir, "factorgraph.png"))
+    if os.path.exists(fglive):
+        plot_factorgraph_live(fglive, os.path.join(outdir, "factorgraph_live.png"))
 
 
 if __name__ == "__main__":
