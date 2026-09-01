@@ -608,6 +608,9 @@ def consensus_main(argv=None) -> int:
     ap.add_argument("--mission-aware", action="store_true")
     ap.add_argument("--adaptive-escalate", type=float, default=0.65,
                     help="soft->worst-of escalation line for adaptive consensus")
+    ap.add_argument("--landmark-outage", type=str, default="",
+                    help="comma-separated 'start-end' window applied to ALL faults \
+                          (feature-poor camera), e.g. '10-35'")
     ap.add_argument("--faults", type=str,
                     default="none,scale1.5,bias.1,bias.25",
                     help="comma-separated fault names from FAULT_PRESETS")
@@ -642,6 +645,17 @@ def consensus_main(argv=None) -> int:
         print(f"[cons] unknown policies: {unknown_p}")
         return 1
     policies = [_policies[p] for p in pol_names]
+
+    # Optional feature-poor window applied to all faults.
+    if args.landmark_outage:
+        try:
+            s, e = args.landmark_outage.split("-")
+            lm_out = (float(s), float(e))
+        except Exception:
+            print("[cons] bad --landmark-outage (expected 'start-end')")
+            return 1
+        for f in faults:
+            f["landmark_outage"] = lm_out
 
     rows = consensus_study(faults=faults, n_per_cell=args.n, duration=args.duration,
                            seed=args.seed, mission_aware=args.mission_aware,

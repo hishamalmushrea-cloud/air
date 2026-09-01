@@ -350,6 +350,39 @@ class TestScenario(unittest.TestCase):
         low = sim._combine_detectors([0.95, 0.20])
         self.assertLess(low, 0.30)
 
+    def test_adaptive_veto_clean_on_healthy_landmark_outage(self):
+        # The whole reason adaptive_veto exists: under a feature-poor camera
+        # following a healthy opinion, the detector must NOT let a modest
+        # factor-graph dip escalate into a false landing.
+        cfg = SimConfig()
+        cfg.duration = 40.0
+        cfg.gps_outage = (12.0, 24.0)
+        cfg.landmark_outage = (10.0, 35.0)
+        cfg.detector_consensus = "adaptive_veto"
+        cfg.factorgraph_enabled = True
+        cfg.landmark_enabled = True
+        sim = Simulator(cfg)
+        r = sim.run(record=True)
+        m = safety_metrics(r, cfg.dt)
+        self.assertEqual(m["safety_outcome"], "completed")
+        self.assertEqual(m["safety_fraction"], 0.0)
+
+    def test_adaptive_veto_still_detects_under_outage(self):
+        # And it must NOT lose detection on a real fault during the outage.
+        cfg = SimConfig()
+        cfg.duration = 40.0
+        cfg.gps_outage = (12.0, 24.0)
+        cfg.landmark_outage = (10.0, 35.0)
+        cfg.flow_bias_ramp = 0.25
+        cfg.detector_consensus = "adaptive_veto"
+        cfg.factorgraph_enabled = True
+        cfg.landmark_enabled = True
+        sim = Simulator(cfg)
+        r = sim.run(record=True)
+        m = safety_metrics(r, cfg.dt)
+        self.assertIn(m["safety_outcome"], ("reactive_hold", "landed_safely"))
+        self.assertEqual(m["crash"], 0.0)
+
     def test_adaptive_consensus_escalates_only_when_degraded(self):
         cfg = SimConfig()
         sim = Simulator(cfg)
