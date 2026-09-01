@@ -553,6 +553,7 @@ def consensus_study(
             ("weighted", True, True, "weighted"),
             ("adaptive_weighted", True, True, "adaptive_weighted"),
             ("adaptive_veto", True, True, "adaptive_veto"),
+            ("adaptive_veto_trust", True, True, "adaptive_veto_trust"),
         ]
     rows = []
     for fault in faults:
@@ -639,6 +640,7 @@ def consensus_main(argv=None) -> int:
         "weighted": ("weighted", True, True, "weighted"),
         "adaptive_weighted": ("adaptive_weighted", True, True, "adaptive_weighted"),
         "adaptive_veto": ("adaptive_veto", True, True, "adaptive_veto"),
+        "adaptive_veto_trust": ("adaptive_veto_trust", True, True, "adaptive_veto_trust"),
     }
     unknown_p = [p for p in pol_names if p not in _policies]
     if unknown_p:

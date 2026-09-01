@@ -275,11 +275,11 @@ def plot_consensus(path: str, out: str) -> None:
     if not rows:
         return
     faults = sorted({r.get("flow_fault", "none") for r in rows})
-    policies = ["none", "lm_only", "fg_only", "min", "max", "geom", "adaptive", "weighted", "adaptive_weighted", "adaptive_veto"]
+    policies = ["none", "lm_only", "fg_only", "min", "max", "geom", "adaptive", "weighted", "adaptive_weighted", "adaptive_veto", "adaptive_veto_trust"]
     colors = {
         "none": "#666666", "lm_only": "#2b8cbe", "fg_only": "#de2d26",
         "min": "#31a354", "max": "#756bb1", "geom": "#ff7f00",
-        "adaptive": "#e377c2", "weighted": "#17becf", "adaptive_weighted": "#bcbd22", "adaptive_veto": "#1f77b4",
+        "adaptive": "#e377c2", "weighted": "#17becf", "adaptive_weighted": "#bcbd22", "adaptive_veto": "#1f77b4", "adaptive_veto_trust": "#9467bd",
     }
     fig, ax = plt.subplots(1, 2, figsize=(12, 4.5))
     width = 0.8 / len(policies)
@@ -329,7 +329,7 @@ def plot_consensus_roc(path: str, out: str) -> None:
     colors = {
         "none": "#666666", "lm_only": "#2b8cbe", "fg_only": "#de2d26",
         "min": "#31a354", "max": "#756bb1", "geom": "#ff7f00",
-        "adaptive": "#e377c2", "weighted": "#17becf", "adaptive_weighted": "#bcbd22", "adaptive_veto": "#1f77b4",
+        "adaptive": "#e377c2", "weighted": "#17becf", "adaptive_weighted": "#bcbd22", "adaptive_veto": "#1f77b4", "adaptive_veto_trust": "#9467bd",
     }
     fig, ax = plt.subplots(figsize=(6.5, 5.5))
     for pol in policies:

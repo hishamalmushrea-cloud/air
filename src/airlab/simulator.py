@@ -236,6 +236,7 @@ class Simulator:
         self._landmark_score = 1.0
         self._landmark_residual = 0.0
         self._landmark_obs_count = 0    # observed landmarks in latest frame
+        self._landmark_dirs = np.zeros((0, 3))  # latest observed body dirs
         self._factorgraph_health = 1.0
         self._factorgraph_residual = 0.0
         self._fg_flow_components = 0     # flow factors used in last optimisation
@@ -303,7 +304,8 @@ class Simulator:
         mode = self.cfg.detector_consensus
         if mode == "max":            # AND: both must agree there is a fault
             return float(np.max(a))
-        if mode in ("geom", "adaptive", "weighted", "adaptive_weighted", "adaptive_veto"):
+        if mode in ("geom", "adaptive", "weighted", "adaptive_weighted",
+                    "adaptive_veto", "adaptive_veto_trust"):
             w = self._consensus_weights(len(parts))
             soft_uw = float(np.sqrt(np.prod(np.clip(a, 1e-9, 1.0))))
             soft_w = self._weighted_geom(a, w)
@@ -313,6 +315,8 @@ class Simulator:
                 return soft_w
             if mode == "adaptive_veto":
                 return self._adaptive_veto(a, w, soft_uw)
+            if mode == "adaptive_veto_trust":
+                return self._adaptive_veto_trust(a, soft_uw)
             # adaptive (unweighted soft) / adaptive_weighted (availability-
             # weighted soft): escalate to worst-of when the soft opinion fails.
             soft = soft_uw if mode == "adaptive" else soft_w
@@ -345,6 +349,69 @@ class Simulator:
                 return float(max(healthy))
             return float(warn)   # truly fully blind: be neutral/cautious
         return float(min(min(credible_low), soft))
+
+    def _adaptive_veto_trust(self, a: np.ndarray, soft: float) -> float:
+        """Like adaptive_veto, but using continuous measured-*trust* instead of
+        a binary credibility floor.
+
+        Detectors are ordered (landmark, factorgraph).  A credible low is any
+        detector that is (a) below warn and (b) has trust >= 0.45; a low
+        opinion from a cluster-of-points camera (many but not spread) is treated
+        as thin and cannot trigger.  The healthy veto voice is the highest
+        credible detector's score (not a stale thin one).
+        """
+        escalate = self.safety.cfg.adaptive_escalate
+        warn = self.safety.cfg.detector_health_warn
+        if soft >= escalate:
+            return soft
+        kinds = ("landmark", "factorgraph")
+        trusts = np.asarray([self._detector_trust(kinds[i] if i < len(kinds) else "landmark")
+                             for i in range(len(a))], dtype=float)
+        credible_low = [a[i] for i in range(len(a))
+                        if a[i] < warn and trusts[i] >= 0.45]
+        if not credible_low:
+            healthy = [a[i] for i in range(len(a)) if trusts[i] >= 0.45]
+            if healthy:
+                return float(max(healthy))
+            return float(warn)
+        return float(min(min(credible_low), soft))
+
+    def _detector_trust(self, kind: str) -> float:
+        """A continuous, self-measured *trust* in this frame's geometry.
+
+        Unlike the binary availability weight, this is informative even when a
+        detector reports "many" measurements: a camera seeing many landmarks
+        that all lie in a tiny angular cluster gives almost no geometric
+        leverage, so its opinion on a fault is weak regardless of count.
+
+        landmark  : fractional count  x  angular-diversity (RMS pairwise angle)
+        factorgraph: fraction of min factors x convergence (under-determined
+                    graph is a weak opinion even if it has many residuals).
+        """
+        if kind == "landmark":
+            dirs = np.asarray(self._landmark_dirs, dtype=float)
+            n = self._landmark_obs_count
+            if n < 2 or dirs.shape[0] < 2:
+                return 0.0
+            ang = []
+            for i in range(min(n, dirs.shape[0])):
+                for j in range(i + 1, min(n, dirs.shape[0])):
+                    d = float(np.clip(np.dot(dirs[i], dirs[j]), -1.0, 1.0))
+                    ang.append(float(np.arccos(d)))
+            if not ang:
+                return 0.0
+            rms = float(np.sqrt(np.mean(np.square(ang))))
+            diversity = float(np.clip(rms / 1.2, 0.0, 1.0))  # ~69 deg
+            count_frac = float(np.clip(n / 3.0, 0.0, 1.0))
+            return float(count_frac * diversity)
+        if kind == "factorgraph":
+            if not self.factorgraph_health_trusted:
+                return 0.0
+            comp = self._fg_flow_components
+            base = float(np.clip(comp / max(self.factorgraph.min_keyframes, 1), 0.0, 1.0))
+            conv = 1.0 if self._fg_converged else 0.5
+            return float(base * conv)
+        return 1.0
 
     def _consensus_weights(self, n: int) -> np.ndarray:
         """Per-detector availability weights (landmark, factorgraph)."""
@@ -669,6 +736,7 @@ class Simulator:
                 else:
                     ids, dirs = self.landmark_field.observe(self.vehicle)
                 self._landmark_obs_count = len(ids)
+                self._landmark_dirs = np.asarray(dirs, dtype=float).copy()
                 self._landmark_score = self.landmark_consistency.evaluate(
                     ids, dirs, self.ekf.pos, self.ekf.rpy)
                 self._landmark_residual = self.landmark_consistency.residual

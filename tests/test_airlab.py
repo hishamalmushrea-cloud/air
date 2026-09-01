@@ -330,6 +330,27 @@ class TestScenario(unittest.TestCase):
         self.assertEqual(m["safety_outcome"], "completed")
         self.assertEqual(m["safety_fraction"], 0.0)
 
+    def test_frame_trust_discriminates_spread_vs_clustered(self):
+        # Two cameras both report 3 landmarks, but one sees a wide angular
+        # spread and the other a tight cluster.  The trust model must give the
+        # spread one a much stronger voice (geometric leverage, not raw count).
+        cfg = SimConfig()
+        sim = Simulator(cfg)
+        # spread: unit dirs in well-separated directions
+        spread = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, -0.2]])
+        spread = spread / np.linalg.norm(spread, axis=1, keepdims=True)
+        sim._landmark_dirs = spread
+        sim._landmark_obs_count = 3
+        trust_spread = sim._detector_trust("landmark")
+        # clustered: near-identical directions
+        clustered = np.array([[1.0, 0.0, -0.2], [1.0, 0.02, -0.2], [1.0, -0.02, -0.2]])
+        clustered = clustered / np.linalg.norm(clustered, axis=1, keepdims=True)
+        sim._landmark_dirs = clustered
+        sim._landmark_obs_count = 3
+        trust_clustered = sim._detector_trust("landmark")
+        self.assertGreater(trust_spread, 0.5)
+        self.assertLess(trust_clustered, trust_spread * 0.5)
+
     def test_adaptive_veto_keeps_healthy_veto_during_outage(self):
         # A feature-poor camera keeps its last healthy score.  A symmetric
         # availability weight would down-weight it and let a noisier factor

@@ -135,19 +135,20 @@ sensor-fusion layer is designed to close.
 
 ## Roadmap (current thinking)
 
-The repo is at **Stage 15** of the longer research program. The next stages in
+The repo is at **Stage 16** of the longer research program. The next stages in
 order of value:
 
-1. **The veto guardrail is statistically confirmed (n=6).**  Under a feature-poor
-   camera (landmark outage), `adaptive_veto` is identical to `adaptive` on every
-   real fault (scale1.5 0.727, bias.1 0.789, bias.25 **0.836** landed, crash 0)
-   and stays false-alarm-free on healthy (0.000), while the unwatched arm
-   crashes 0.020 at bias.25.  `adaptive_veto` is the recommended mode for
-   feature-poor flight (`docs/research-brief-14.md`).
-2. **Per-frame trust learning** — replace the hand-set availability floor (0.5)
-   with a learned "is this frame informative?" confidence.
-3. **Sparse factor-graph outage** in addition to landmark outage, then n≥30 for
-   headline crash numbers.
+1. **Self-measured frame trust is implemented.**  `adaptive_veto_trust` replaces
+   the binary availability floor with a continuous trust: landmark count ×
+   **angular diversity** (a cluster-of-points camera is weak even with many
+   features) and factor-graph conditioning × convergence.  In the current
+   (always well-spread) world it is identical to `adaptive_veto` (bias.25 0.844
+   landed, crash 0, healthy 0.000); its distinguishing behaviour needs a
+   clustered-degenerate camera to exercise (`docs/research-brief-15.md`).
+2. **Inject a clustered-degenerate camera** as a first-class failure, then
+   compare `adaptive_veto` vs `adaptive_veto_trust` there.
+3. **Learned per-frame confidence** on top of the analytic trust; then sparse
+   factor-graph outage and n≥30 for headline crash numbers.
 2. **Mission-aware RTL is opt-in and honestly limited.**  A ramping corrupt
    velocity source corrupts navigation before detection, so RTL is a guess
    there.  The useful design-in pieces (early source rejection, GPS-only state
