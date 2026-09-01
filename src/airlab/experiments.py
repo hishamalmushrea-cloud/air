@@ -501,12 +501,24 @@ def factorgraph_detector_study(
     return rows
 
 
+FAULT_PRESETS = {
+    "none":     {"name": "none",     "scale": 1.0, "bias_ramp": 0.0},
+    "scale1.2": {"name": "scale1.2", "scale": 1.2, "bias_ramp": 0.0},
+    "scale1.5": {"name": "scale1.5", "scale": 1.5, "bias_ramp": 0.0},
+    "scale1.8": {"name": "scale1.8", "scale": 1.8, "bias_ramp": 0.0},
+    "bias.05":  {"name": "bias.05",  "scale": 1.0, "bias_ramp": 0.05},
+    "bias.1":   {"name": "bias.1",   "scale": 1.0, "bias_ramp": 0.10},
+    "bias.25":  {"name": "bias.25",  "scale": 1.0, "bias_ramp": 0.25},
+}
+
+
 def consensus_study(
     faults: list[dict] | None = None,
     n_per_cell: int = 6,
     duration: float = 45.0,
     seed: int = 191,
     mission_aware: bool = False,
+    policies: list[tuple[str, bool, bool, str]] | None = None,
 ) -> list[dict]:
     """Compare consensus policies between the two independent detectors.
 
@@ -528,14 +540,15 @@ def consensus_study(
         ]
     rng = np.random.default_rng(seed)
     base = [random_scenario(rng, duration=duration, index=k) for k in range(n_per_cell)]
-    policies = [
-        ("none",  False, False, "min"),
-        ("lm_only", True, False, "min"),
-        ("fg_only", False, True, "min"),
-        ("min",   True, True, "min"),
-        ("max",   True, True, "max"),
-        ("geom",  True, True, "geom"),
-    ]
+    if policies is None:
+        policies = [
+            ("none",  False, False, "min"),
+            ("lm_only", True, False, "min"),
+            ("fg_only", False, True, "min"),
+            ("min",   True, True, "min"),
+            ("max",   True, True, "max"),
+            ("geom",  True, True, "geom"),
+        ]
     rows = []
     for fault in faults:
         for label, lm_on, fg_on, consensus in policies:
@@ -586,10 +599,40 @@ def consensus_main(argv=None) -> int:
     ap.add_argument("--duration", type=float, default=45.0)
     ap.add_argument("--seed", type=int, default=191)
     ap.add_argument("--mission-aware", action="store_true")
+    ap.add_argument("--faults", type=str,
+                    default="none,scale1.5,bias.1,bias.25",
+                    help="comma-separated fault names from FAULT_PRESETS")
+    ap.add_argument("--policies", type=str,
+                    default="none,lm_only,fg_only,min,max,geom",
+                    help="comma-separated policy labels")
     ap.add_argument("--out", type=str, default="out/consensus.csv")
     args = ap.parse_args(argv)
-    rows = consensus_study(n_per_cell=args.n, duration=args.duration,
-                           seed=args.seed, mission_aware=args.mission_aware)
+
+    fault_names = [x.strip() for x in args.faults.split(",") if x.strip()]
+    unknown = [f for f in fault_names if f not in FAULT_PRESETS]
+    if unknown:
+        print(f"[cons] unknown faults: {unknown}")
+        return 1
+    faults = [dict(FAULT_PRESETS[f]) for f in fault_names]
+
+    pol_names = [x.strip() for x in args.policies.split(",") if x.strip()]
+    _policies = {
+        "none": ("none", False, False, "min"),
+        "lm_only": ("lm_only", True, False, "min"),
+        "fg_only": ("fg_only", False, True, "min"),
+        "min": ("min", True, True, "min"),
+        "max": ("max", True, True, "max"),
+        "geom": ("geom", True, True, "geom"),
+    }
+    unknown_p = [p for p in pol_names if p not in _policies]
+    if unknown_p:
+        print(f"[cons] unknown policies: {unknown_p}")
+        return 1
+    policies = [_policies[p] for p in pol_names]
+
+    rows = consensus_study(faults=faults, n_per_cell=args.n, duration=args.duration,
+                           seed=args.seed, mission_aware=args.mission_aware,
+                           policies=policies)
     write_csv(rows, args.out)
     print(f"[cons] wrote {args.out}")
     return 0

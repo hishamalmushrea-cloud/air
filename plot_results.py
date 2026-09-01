@@ -306,6 +306,56 @@ def plot_consensus(path: str, out: str) -> None:
     print(f"[plot] consensus -> {out}")
 
 
+def plot_consensus_roc(path: str, out: str) -> None:
+    """Decision-cost ROC: landing-aggressiveness vs missed crash.
+
+    For each policy we collect two numbers:
+      x = how often it *acts* (lands) on faults that never crash when
+          unwatched (none, mild scale/bias)  -> mission-completion cost
+      y = how often it *fails* (unintended crash) on the hardest fault (bias.25)
+          -> safety miss cost
+    A good policy is near the bottom-left of this plot.
+    """
+    rows = _read(path)
+    if not rows:
+        return
+    policies = sorted({r.get("policy", "") for r in rows})
+    # "Benign" = faults where the *unwatched* vehicle stays in-bounds (>=0.88)
+    # for the whole mission, so acting on them is a pure mission-completion cost
+    # (not a justified safety response).  bias.05 is NOT benign: it stays crash
+    # free but already leaves bounds (in_bounds ~0.41 on the unwatched arm).
+    benign = {"none", "scale1.2", "scale1.5", "scale1.8"}
+    colors = {
+        "none": "#666666", "lm_only": "#2b8cbe", "fg_only": "#de2d26",
+        "min": "#31a354", "max": "#756bb1", "geom": "#ff7f00",
+    }
+    fig, ax = plt.subplots(figsize=(6.5, 5.5))
+    for pol in policies:
+        sub = rows
+        act = [float(r["mean_landed"]) for r in sub
+               if r.get("policy") == pol and r.get("flow_fault") in benign]
+        miss = [float(r["mean_crash"]) for r in sub
+                if r.get("policy") == pol and r.get("flow_fault") == "bias.25"]
+        if not act or not miss:
+            continue
+        x = float(np.mean(act))
+        y = float(np.mean(miss))
+        ax.scatter(x, y, s=90, color=colors.get(pol, "#31a354"), alpha=0.85,
+                   zorder=3)
+        ax.annotate(pol, (x, y), textcoords="offset points", xytext=(6, 4),
+                    fontsize=8)
+    ax.set_xlabel("landing-aggressiveness (mean landed on benign faults)")
+    ax.set_ylabel("missed crash (mean unintended crash @ bias.25)")
+    ax.set_ylim(0, max(0.06, max([float(r["mean_crash"]) for r in rows
+                                  if r.get("flow_fault") == "bias.25"] or [0.0]) * 1.2))
+    ax.set_xlim(0, 1.0)
+    ax.grid(alpha=0.3)
+    ax.set_title("Consensus decision cost (lower-left is better)")
+    fig.tight_layout()
+    fig.savefig(out, dpi=130)
+    print(f"[plot] consensus ROC -> {out}")
+
+
 def main():
     batch = sys.argv[1] if len(sys.argv) > 1 else "out/batch.csv"
     deg = sys.argv[2] if len(sys.argv) > 2 else "out/degradation.csv"
@@ -329,6 +379,7 @@ def main():
         plot_factorgraph_live(fglive, os.path.join(outdir, "factorgraph_live.png"))
     if os.path.exists(consensus):
         plot_consensus(consensus, os.path.join(outdir, "consensus.png"))
+        plot_consensus_roc(consensus, os.path.join(outdir, "consensus_roc.png"))
 
 
 if __name__ == "__main__":

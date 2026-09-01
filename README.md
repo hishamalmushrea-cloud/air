@@ -135,14 +135,19 @@ sensor-fusion layer is designed to close.
 
 ## Roadmap (current thinking)
 
-The repo is at **Stage 9** of the longer research program. The next stages in
+The repo is at **Stage 10** of the longer research program. The next stages in
 order of value:
 
-1. **Two-monitor consensus is live and its policy is studied.**  The default is
-   `min` (worst-of / OR): as soon as *any* independent detector is confident,
-   the safety layer may force a landing even while GNSS is available.  `geom`
-   is the tunable middle for mission-completion-conscious operations.  A wider
-   grid (n≥30) is still the right statistical next step.
+1. **Two-monitor consensus is live and its cost is quantified.**  The simulator
+   default is `min` (worst-of / OR): as soon as *any* independent detector is
+   confident, the safety layer may force a landing even while GNSS is available.
+   The fault-depth sweep gives the decision-cost ROC: `min`/`fg_only` maximize
+   crash protection (bias.25 landed 0.85, crash 0) at a ~21% benign-mission
+   cost; `geom` is the balanced mode (0.78 landed, ~16% cost); `lm_only` is the
+   minimum-interruption mode (crash 0, ~3% cost, but only 0.28 landed on the
+   hard fault).  See `docs/research-brief-09.md`.
+2. **Adaptive consensus** — switch `geom`→`min` as fault depth grows (scale
+   errors are survivable, ramp biases diverge).
 2. **Mission-aware RTL is opt-in and honestly limited.**  A ramping corrupt
    velocity source corrupts navigation before detection, so RTL is a guess
    there.  The useful design-in pieces (early source rejection, GPS-only state
