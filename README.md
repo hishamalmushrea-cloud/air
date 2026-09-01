@@ -56,6 +56,7 @@ of the stack is inspectable and replaceable.
 | `src/airlab/energy.py` | lightweight mission power/energy model |
 | `src/airlab/safety.py` | uncertainty-aware safety FSM (`CRUISE/HOLD/LAND/LANDED`) + integrity monitor |
 | `src/airlab/landmarks.py` | independent landmark-field consistency detector |
+| `src/airlab/factorgraph.py` | sliding-window nonlinear factor graph + robust flow-residual detector |
 | `src/airlab/simulator.py` | orchestrator, subsystem rates, fault timing |
 | `src/airlab/metrics.py` | navigation and safety metrics |
 | `src/airlab/scenarios.py` | serializable scenario descriptors + random mission generator |
@@ -66,7 +67,8 @@ of the stack is inspectable and replaceable.
 | `run_degradation.py` | GNSS-outage degradation study CLI |
 | `run_corruption.py` | corrupt velocity-aiding + safety-layer study CLI |
 | `run_landmark.py` | independent landmark detector ablation CLI |
-| `plot_results.py` | batch / degradation / corruption / landmark chart generator |
+| `run_factorgraph.py` | factor-graph detector characterisation CLI |
+| `plot_results.py` | batch / degradation / corruption / landmark / factor-graph charts |
 
 ---
 
@@ -131,15 +133,15 @@ sensor-fusion layer is designed to close.
 
 ## Roadmap (current thinking)
 
-The repo is at **Stage 4** of the longer research program. The next stages in
+The repo is at **Stage 5** of the longer research program. The next stages in
 order of value:
 
-1. **Full factor-graph / multi-hypothesis backend** — replace the simple
-   landmark heuristic with joint optimisation of flow + landmark factors so a
-   single biased factor shows up directly in the residual (see
-   `docs/research-brief-03.md`).
-2. **Richer landmark geometry** — larger field, higher rate, landmark
-   persistence and a learned "trust this frame" model.
+1. **Calibrate the factor-graph detector** — improve landmark observability /
+   data association, use proper VIO/IMU pre-integration for the independent
+   init, and calibrate the healthy baseline to ~1.0 so it can become the live
+   safety signal (see `docs/research-brief-04.md`).
+2. **Richer landmark geometry** — higher rate, landmark persistence and a
+   learned "trust this frame" model.
 3. **Physics fidelity v4** — motor/spin dynamics, propeller model, thermal,
    ground effect.
 4. **Digital twin** — save a run as telemetry and provide replay/re-command.
@@ -178,6 +180,13 @@ rather than re-integrating the same IMU, it is the only thing that can catch a
 ablation study (`docs/research-brief-03.md`) shows it raises controlled landings
 for the hardest fault (bias.25) from 0.00 → 0.44 at 30 s GNSS loss, while
 healthy missions still finish without false alarms.
+
+For the research-grade version, `factorgraph.py` builds a small sliding-window
+factor graph (IMU + flow + GPS + landmarks) with a Cauchy robust kernel and
+reports the post-optimisation flow residual.  It catches very large faults
+decisively (bias 2 m/s → residual ~44) but is **opt-in** because its healthy
+baseline still needs calibration/observability in aggressive missions (see
+`docs/research-brief-04.md`).
 
 ---
 

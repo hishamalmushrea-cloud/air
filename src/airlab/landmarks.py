@@ -31,23 +31,26 @@ class LandmarkField:
     def __init__(
         self,
         positions_ned: np.ndarray | None = None,
-        range_m: float = 35.0,
-        fov_cos: float = 0.40,          # camera z-axis (down) field-of-view limit
+        range_m: float = 40.0,
+        fov_cos: float = 0.15,          # camera z-axis (down) field-of-view limit
         bearing_noise: float = 0.01,    # rad
-        max_landmarks: int = 4,
+        max_landmarks: int = 6,
         seed: int = 3,
     ) -> None:
         if positions_ned is None:
-            # A small "synthetic world" around the default mission area.
-            # (north, east, down) — the down component is the negative of the
-            # intuitive height, so these are near/above ground.
+            # A "synthetic world" covering the default mission area densely
+            # enough that the camera almost always sees >=2 landmarks.  The
+            # down component is the negative of the intuitive height, so these
+            # are near/below the vehicle (camera looks mostly downward).
             positions_ned = np.array([
-                [12.0, 10.0, -0.5],
-                [-10.0, 12.0, -0.5],
-                [12.0, -12.0, -0.5],
-                [-12.0, -14.0, -0.5],
-                [0.0, 18.0, -2.0],
-                [18.0, 0.0, -2.0],
+                [12.0, 10.0, -0.5], [-10.0, 12.0, -0.5],
+                [12.0, -12.0, -0.5], [-12.0, -14.0, -0.5],
+                [0.0, 18.0, -2.0], [18.0, 0.0, -2.0],
+                [0.0, -10.0, -1.0], [-12.0, 4.0, -1.0],
+                [14.0, 4.0, -1.0], [4.0, 16.0, -1.5],
+                [-4.0, -16.0, -1.5], [16.0, -16.0, -1.5],
+                [-16.0, 16.0, -1.5], [8.0, 12.0, -1.0],
+                [-8.0, -8.0, -1.0], [20.0, 8.0, -2.0],
             ])
         self.positions = np.asarray(positions_ned, dtype=float).reshape(-1, 3)
         self.range_m = range_m

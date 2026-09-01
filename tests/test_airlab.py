@@ -24,6 +24,7 @@ from airlab.metrics import evaluate_mission, safety_metrics
 from airlab.scenarios import random_scenario, run_scenario
 from airlab.energy import compute_energy
 from airlab.landmarks import LandmarkField, LandmarkConsistency
+from airlab.factorgraph import SlidingFactorGraph, build_keyframe
 
 G = 9.80665
 
@@ -215,6 +216,32 @@ class TestScenario(unittest.TestCase):
         self.assertEqual(m["safety_fraction"], 0.0)
         # And the landmark detector should stay reasonably healthy throughout.
         self.assertTrue(np.min(np.asarray(r.landmark_score)) > 0.8)
+
+    def test_factor_graph_detects_large_flow_bias(self):
+        """A big ramping bias must drive the factor-graph flow residual up."""
+        field = LandmarkField()
+        pos = np.array([0.0, 0.0, -3.0])
+        vel = np.array([1.5, 0.0, 0.0])
+        rpy = np.zeros(3)
+
+        def run(bias):
+            graph = SlidingFactorGraph(field.positions, window=6, dt_keyframe=0.5)
+            p = pos.copy()
+            v = vel.copy()
+            for _ in range(12):
+                flow = v + np.array([bias, 0.0, 0.0])
+                ids, dirs = field.observe(type("V", (), {
+                    "pos": p, "R_nb": np.eye(3)})())
+                kf = build_keyframe(p, v, np.zeros(3), rpy, 0.5,
+                                    flow, p.copy(), v.copy(), ids, dirs)
+                graph.push(kf)
+                p = p + v * 0.5
+            return graph.optimize()
+
+        healthy = run(0.0)
+        biased = run(0.8)
+        self.assertGreater(biased["flow_residual"], healthy["flow_residual"])
+        self.assertLess(biased["health"], healthy["health"])
 
     def test_energy_increases_with_thrust(self):
         from airlab.energy import PowerModel

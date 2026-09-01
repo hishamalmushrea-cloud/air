@@ -199,11 +199,37 @@ def plot_landmark(path: str, out: str) -> None:
     print(f"[plot] landmark -> {out}")
 
 
+def plot_factorgraph(path: str, out: str) -> None:
+    rows = _read(path)
+    if not rows:
+        return
+    names = [r.get("flow_fault", "?") for r in rows]
+    res = np.array([float(r["fg_max_residual_mps"]) for r in rows])
+
+    fig, ax = plt.subplots(1, 2, figsize=(11, 4))
+    ax[0].bar(names, res, color="#2b8cbe")
+    ax[0].set_ylabel("max flow residual (m/s)")
+    ax[0].set_title("Factor-graph flow residual")
+    ax[0].tick_params(axis="x", rotation=25)
+
+    lm = np.array([float(r["lm_min_health"]) for r in rows])
+    ax[1].bar(names, lm, color="#31a354")
+    ax[1].set_ylabel("min landmark health")
+    ax[1].set_ylim(0, 1.05)
+    ax[1].set_title("Landmark consistency (for comparison)")
+    ax[1].tick_params(axis="x", rotation=25)
+
+    fig.tight_layout()
+    fig.savefig(out, dpi=130)
+    print(f"[plot] factorgraph -> {out}")
+
+
 def main():
     batch = sys.argv[1] if len(sys.argv) > 1 else "out/batch.csv"
     deg = sys.argv[2] if len(sys.argv) > 2 else "out/degradation.csv"
     corr = sys.argv[3] if len(sys.argv) > 3 else "out/corruption.csv"
     lm = sys.argv[4] if len(sys.argv) > 4 else "out/landmark.csv"
+    fg = sys.argv[5] if len(sys.argv) > 5 else "out/factorgraph.csv"
     outdir = "out"
     if os.path.exists(batch):
         plot_batch(batch, os.path.join(outdir, "batch.png"))
@@ -213,6 +239,8 @@ def main():
         plot_corruption(corr, os.path.join(outdir, "corruption.png"))
     if os.path.exists(lm):
         plot_landmark(lm, os.path.join(outdir, "landmark.png"))
+    if os.path.exists(fg):
+        plot_factorgraph(fg, os.path.join(outdir, "factorgraph.png"))
 
 
 if __name__ == "__main__":

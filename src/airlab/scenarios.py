@@ -65,6 +65,9 @@ class Scenario:
     safety_enabled: bool = True
     landmark_enabled: bool = True
 
+    # Principled factor-graph independent monitor (opt-in for analysis)
+    factorgraph_enabled: bool = False
+
     def to_config(self) -> SimConfig:
         cfg = SimConfig()
         cfg.duration = self.duration
@@ -80,6 +83,7 @@ class Scenario:
         cfg.flow_bias_ramp = self.flow_bias_ramp
         cfg.safety_enabled = self.safety_enabled
         cfg.landmark_enabled = self.landmark_enabled
+        cfg.factorgraph_enabled = self.factorgraph_enabled
 
         # Build a SensorConfig from the serialisable descriptor.
         cfg.sensor_kwargs = {

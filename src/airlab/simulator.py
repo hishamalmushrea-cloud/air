@@ -21,6 +21,7 @@ from .metrics import evaluate_mission
 from .safety import (SafetyMonitor, SafetyConfig, CRUISE, HOLD, LAND, LANDED,
                      VelocityIntegrityMonitor)
 from .landmarks import LandmarkField, LandmarkConsistency
+from .factorgraph import SlidingFactorGraph, build_keyframe
 
 
 class SimConfig:
@@ -53,6 +54,14 @@ class SimConfig:
         # corrupt velocity-aiding source that the EKF would otherwise trust.
         self.landmark_enabled = True
         self.landmark_hz = 5.0
+
+        # Principled factor-graph consistency monitor (IMU+flow+GPS+landmarks,
+        # jointly optimised with a robust kernel).  Currently opt-in for
+        # analysis: the live safety signal stays on the proven landmark
+        # detector while we characterise when the graph residual is reliable.
+        self.factorgraph_enabled = False
+        self.factorgraph_hz = 2.0
+        self.factorgraph_kwargs = {}
 
         self.vehicle_kwargs = {}
         self.sensor_kwargs = {}
@@ -99,6 +108,8 @@ class SimRun:
         self.flow_dr_vel = []
         self.landmark_score = []
         self.landmark_residual = []
+        self.factorgraph_health = []
+        self.factorgraph_residual = []
         self.landed = []
 
     def record(self, sim, pos_ref, vel_ref, yaw_ref) -> None:
@@ -124,6 +135,8 @@ class SimRun:
         self.flow_dr_vel.append(sim.flow_integrity.vel.copy())
         self.landmark_score.append(sim._landmark_score)
         self.landmark_residual.append(sim._landmark_residual)
+        self.factorgraph_health.append(sim._factorgraph_health)
+        self.factorgraph_residual.append(sim._factorgraph_residual)
         self.landed.append(1.0 if sim.safety.mode == LANDED else 0.0)
 
     def as_arrays(self) -> dict:
@@ -132,7 +145,7 @@ class SimRun:
                   "est_rpy", "ref_pos", "ref_vel", "control", "cost",
                   "unc_horiz_std", "flow_health", "flow_mismatch",
                   "flow_dr_vel", "landmark_score", "landmark_residual",
-                  "landed"):
+                  "factorgraph_health", "factorgraph_residual", "landed"):
             d[k] = np.asarray(d[k], dtype=float)
         d["ref_yaw"] = np.asarray(d["ref_yaw"], dtype=float)
         d["gps_available"] = np.asarray(d["gps_available"], dtype=float)
@@ -156,8 +169,13 @@ class Simulator:
         self.safety.cfg.enabled = self.cfg.safety_enabled
         self.flow_integrity = VelocityIntegrityMonitor()
         self.flow_integrity.reset(self.vehicle.vel, self.vehicle.rpy)
+        # IMU-only dead-reckon position, independent of the flow-fed EKF.
+        self._dr_pos = self.vehicle.pos.copy()
+        self._dr_vel = self.vehicle.vel.copy()
         self.landmark_field = LandmarkField()
         self.landmark_consistency = LandmarkConsistency(self.landmark_field)
+        self.factorgraph = SlidingFactorGraph(self.landmark_field.positions,
+                                              **self.cfg.factorgraph_kwargs)
         self.rng = np.random.default_rng(self.cfg.seed)
         self.time = 0.0
         self.last_imu = None
@@ -167,6 +185,8 @@ class Simulator:
         self._last_flow_mismatch = 0.0
         self._landmark_score = 1.0
         self._landmark_residual = 0.0
+        self._factorgraph_health = 1.0
+        self._factorgraph_residual = 0.0
 
     def _make_vehicle(self, cfg: SimConfig) -> Quadrotor:
         return Quadrotor(**cfg.vehicle_kwargs)
@@ -244,9 +264,10 @@ class Simulator:
         mag_period = 1.0 / max(self.sensors.cfg.mag_hz, 1.0)
         flow_period = 1.0 / max(self.sensors.cfg.flow_hz, 1.0)
         landmark_period = 1.0 / max(self.cfg.landmark_hz, 1.0)
+        factorgraph_period = 1.0 / max(self.cfg.factorgraph_hz, 1.0)
 
         t_acc = 0.0
-        ah_acc, baro_acc, gps_acc, mag_acc, flow_acc, lm_acc = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+        ah_acc, baro_acc, gps_acc, mag_acc, flow_acc, lm_acc, fg_acc = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
         for i in range(steps):
             self.time = i * dt
@@ -298,6 +319,7 @@ class Simulator:
             mag_acc += dt
             flow_acc += dt
             lm_acc += dt
+            fg_acc += dt
 
             # EKF predict at IMU rate
             self.ekf.predict(self.last_imu.accel, self.last_imu.gyro, dt)
@@ -307,6 +329,7 @@ class Simulator:
             acc_corr = self.last_imu.accel - self.ekf.accel_bias
             gyro_corr = self.last_imu.gyro - self.ekf.gyro_bias
             self.flow_integrity.predict(acc_corr, gyro_corr, dt)
+            self._dr_pos += self.flow_integrity.vel * dt
 
             if t_acc >= imu_period - 1e-9:
                 t_acc = 0.0
@@ -331,8 +354,10 @@ class Simulator:
                     # optical-flow confidence / feature quality, noisy).
                     health = float(self.sensors.flow_health)
                     # Independent landmark consistency is the *primary* second
-                    # opinion; the open-loop IMU dead-reckon remains available
-                    # behind a flag but is not reliable enough by itself.
+                    # opinion; the factor graph is the principled version of
+                    # the same idea and replaces it when enabled.
+                    if self.cfg.factorgraph_enabled:
+                        health = float(min(health, self._factorgraph_health))
                     if self.cfg.landmark_enabled:
                         health = float(min(health, self._landmark_score))
                     if self.cfg.integrity_monitor_enabled:
@@ -351,6 +376,43 @@ class Simulator:
                 self._landmark_residual = self.landmark_consistency.residual
                 lm_acc = 0.0
 
+            # Factor-graph consistency monitor.  Every keyframe we push raw
+            # measured data: IMU plus AHRS attitude (for accel->NED), a GNSS
+            # fix if available, a flow velocity sample if the sensor is alive,
+            # and the camera landmark observation.  The graph then jointly
+            # optimises all of these; the post-optimisation flow residual is
+            # the independent signal.  If a corrupt flow is consistent with
+            # itself but inconsistent with landmarks/IMU/GNSS, that residual
+            # will be large and the health will drop.
+            if fg_acc >= factorgraph_period - 1e-9:
+                if self.cfg.factorgraph_enabled:
+                    gps_here = self.sensors.sample_gps(self.vehicle)
+                    gps_pos, gps_vel = (gps_here if gps_here is not None
+                                        else (None, None))
+                    flow_here = None
+                    if self.cfg.flow_enabled:
+                        flow_here = self.sensors.sample_flow(self.vehicle)
+                    ids_here, dirs_here = self.landmark_field.observe(self.vehicle)
+                    # Use the *bias-corrected* acceleration in the IMU factor
+                    # so the graph's propagation matches the real (estimated)
+                    # specific force rather than the biased raw measurement.
+                    # The keyframe's initial estimate comes from an *IMU-only
+                    # dead-reckon* (not the flow-fed EKF) so the factor graph
+                    # is independent of the estimator it is watching.
+                    kf = build_keyframe(
+                        self._dr_pos, self.flow_integrity.vel,
+                        self.last_imu.accel - self.ekf.accel_bias,
+                        self.ahrs.rpy,
+                        factorgraph_period,
+                        flow_here, gps_pos, gps_vel,
+                        ids_here, dirs_here,
+                    )
+                    self.factorgraph.push(kf)
+                    fg_info = self.factorgraph.optimize()
+                    self._factorgraph_health = fg_info["health"]
+                    self._factorgraph_residual = fg_info["flow_residual"]
+                fg_acc = 0.0
+
             if gps_acc >= gps_period - 1e-9:
                 gps_reading = self.sensors.sample_gps(self.vehicle)
                 if gps_reading is not None:
@@ -359,6 +421,8 @@ class Simulator:
                     # Re-anchor the independent dead-reckon to the corrected
                     # state whenever a trusted absolute fix is available.
                     self.flow_integrity.reset(self.ekf.vel, self.ekf.rpy)
+                    self._dr_pos = self.ekf.pos.copy()
+                    self._dr_vel = self.ekf.vel.copy()
                 gps_acc = 0.0
 
             if record:

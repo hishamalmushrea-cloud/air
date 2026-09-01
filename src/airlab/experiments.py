@@ -345,6 +345,92 @@ def landmark_main(argv=None) -> int:
     return 0
 
 
+def factorgraph_detector_study(
+    faults: list[dict] | None = None,
+    n_per_cell: int = 3,
+    duration: float = 40.0,
+    seed: int = 55,
+) -> list[dict]:
+    """Characterise the factor-graph consistency *detector* in isolation.
+
+    Safety layer is DISABLED and flow is intentionally left on (so the graph
+    has a 'suspect' velocity factor to test).  We record the max flow residual
+    and the min factor-graph health over each mission.  The question is: does
+    the post-optimisation flow residual cleanly separate a healthy source from
+    a corrupt one, independent of the safety-loop reaction time?
+
+    This is the diagnostic form of the multi-hypothesis idea: instead of asking
+    "did we land safely?", we ask "did the graph's own residual detect the bad
+    factor?".
+    """
+    if faults is None:
+        faults = [
+            {"name": "none",     "scale": 1.0, "bias_ramp": 0.0},
+            {"name": "scale1.8", "scale": 1.8, "bias_ramp": 0.0},
+            {"name": "bias.25",  "scale": 1.0, "bias_ramp": 0.25},
+            {"name": "bias.2",   "scale": 1.0, "bias_ramp": 2.0},
+        ]
+
+    rng = np.random.default_rng(seed)
+    base = [random_scenario(rng, duration=duration, index=k) for k in range(n_per_cell)]
+    rows = []
+    for fault in faults:
+        scenarios = []
+        for s in base:
+            s2 = Scenario(**{**s.as_dict(),
+                            "flow_scale": float(fault["scale"]),
+                            "flow_bias_ramp": float(fault["bias_ramp"]),
+                            "safety_enabled": False,
+                            "factorgraph_enabled": True,
+                            "landmark_enabled": True})
+            scenarios.append(s2)
+
+        fg_resids = []
+        fg_healths = []
+        lm_healths = []
+        for s in scenarios:
+            _, run = run_scenario(s, record=True)
+            rr = np.asarray(run.factorgraph_residual, dtype=float)
+            hh = np.asarray(run.factorgraph_health, dtype=float)
+            ll = np.asarray(run.landmark_score, dtype=float)
+            if rr.size:
+                fg_resids.append(float(np.nanmax(rr)))
+                fg_healths.append(float(np.min(hh)))
+                lm_healths.append(float(np.min(ll)))
+
+        row = {
+            "flow_fault": fault["name"],
+            "flow_scale": float(fault["scale"]),
+            "flow_bias_ramp": float(fault["bias_ramp"]),
+            "n": n_per_cell,
+            "fg_max_residual_mps": float(np.mean(fg_resids)) if fg_resids else float("nan"),
+            "fg_min_health": float(np.mean(fg_healths)) if fg_healths else float("nan"),
+            "lm_min_health": float(np.mean(lm_healths)) if lm_healths else float("nan"),
+        }
+        rows.append(row)
+        print(f"[fg] fault={fault['name']:8s} "
+              f"residual={row['fg_max_residual_mps']:.3f} "
+              f"health={row['fg_min_health']:.3f} "
+              f"lm={row['lm_min_health']:.3f}")
+    return rows
+
+
+def factorgraph_main(argv=None) -> int:
+    import argparse
+    ap = argparse.ArgumentParser(description="Characterise the factor-graph consistency detector")
+    ap.add_argument("--n", type=int, default=3)
+    ap.add_argument("--duration", type=float, default=40.0)
+    ap.add_argument("--seed", type=int, default=55)
+    ap.add_argument("--out", type=str, default="out/factorgraph.csv")
+    args = ap.parse_args(argv)
+
+    rows = factorgraph_detector_study(n_per_cell=args.n, duration=args.duration,
+                                      seed=args.seed)
+    write_csv(rows, args.out)
+    print(f"[fg] wrote {args.out}")
+    return 0
+
+
 def corruption_main(argv=None) -> int:
     import argparse
     ap = argparse.ArgumentParser(description="Run velocity-aiding corruption study")
