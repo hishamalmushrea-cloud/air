@@ -519,6 +519,7 @@ def consensus_study(
     seed: int = 191,
     mission_aware: bool = False,
     policies: list[tuple[str, bool, bool, str]] | None = None,
+    adaptive_escalate: float = 0.65,
 ) -> list[dict]:
     """Compare consensus policies between the two independent detectors.
 
@@ -562,6 +563,7 @@ def consensus_study(
                                  "landmark_enabled": lm_on,
                                  "factorgraph_enabled": fg_on,
                                  "detector_consensus": consensus,
+                                 "adaptive_escalate": adaptive_escalate,
                                  "mission_aware": mission_aware})
                 scenarios.append(s2)
             metrics_list = []
@@ -600,6 +602,8 @@ def consensus_main(argv=None) -> int:
     ap.add_argument("--duration", type=float, default=45.0)
     ap.add_argument("--seed", type=int, default=191)
     ap.add_argument("--mission-aware", action="store_true")
+    ap.add_argument("--adaptive-escalate", type=float, default=0.65,
+                    help="soft->worst-of escalation line for adaptive consensus")
     ap.add_argument("--faults", type=str,
                     default="none,scale1.5,bias.1,bias.25",
                     help="comma-separated fault names from FAULT_PRESETS")
@@ -634,7 +638,8 @@ def consensus_main(argv=None) -> int:
 
     rows = consensus_study(faults=faults, n_per_cell=args.n, duration=args.duration,
                            seed=args.seed, mission_aware=args.mission_aware,
-                           policies=policies)
+                           policies=policies,
+                           adaptive_escalate=args.adaptive_escalate)
     write_csv(rows, args.out)
     print(f"[cons] wrote {args.out}")
     return 0

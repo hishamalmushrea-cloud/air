@@ -80,6 +80,7 @@ class SimConfig:
         # benign-fault mission cost by ~33% (0.142 vs 0.212).  See
         # research-brief-10.
         self.detector_consensus = "adaptive"
+        self.adaptive_escalate = 0.65   # soft->worst-of escalation line
 
         # Mission-aware emergency response: instead of always landing where the
         # fault is detected, try to return to base first if the battery and
@@ -195,6 +196,7 @@ class Simulator:
         self.mission = WaypointMission(self.cfg.waypoints, speed=self.cfg.cruise_speed)
         self.safety = SafetyMonitor(SafetyConfig(**self.cfg.safety_kwargs))
         self.safety.cfg.enabled = self.cfg.safety_enabled
+        self.safety.cfg.adaptive_escalate = float(self.cfg.adaptive_escalate)
         self.flow_integrity = VelocityIntegrityMonitor()
         self.flow_integrity.reset(self.vehicle.vel, self.vehicle.rpy)
         # IMU-only dead-reckon position, independent of the flow-fed EKF.
@@ -261,7 +263,7 @@ class Simulator:
             return float(np.sqrt(np.prod(np.clip(a, 1e-9, 1.0))))
         if mode == "adaptive":
             soft = float(np.sqrt(np.prod(np.clip(a, 1e-9, 1.0))))
-            if soft >= self.safety.cfg.detector_health_warn:
+            if soft >= self.safety.cfg.adaptive_escalate:
                 return soft
             return float(np.min(a))  # escalate to worst-of once soft fails
         return float(np.min(a))      # "min" / default: OR, worst-of

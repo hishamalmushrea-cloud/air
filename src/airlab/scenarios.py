@@ -71,6 +71,8 @@ class Scenario:
     # Consensus policy between the independent detectors
     # ("min" / "max" / "geom" / "adaptive"); adaptive is the recommended default.
     detector_consensus: str = "adaptive"
+    # Soft->worst-of escalation line when detector_consensus == "adaptive".
+    adaptive_escalate: float = 0.65
 
     # Mission-aware emergency response (return-to-base vs land-now)
     mission_aware: bool = False
@@ -97,6 +99,7 @@ class Scenario:
         cfg.landmark_enabled = self.landmark_enabled
         cfg.factorgraph_enabled = self.factorgraph_enabled
         cfg.detector_consensus = self.detector_consensus
+        cfg.adaptive_escalate = self.adaptive_escalate
         cfg.mission_aware = self.mission_aware
         cfg.base_pos = self.base_pos
         cfg.rtl_speed = self.rtl_speed

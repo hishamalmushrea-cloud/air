@@ -135,21 +135,21 @@ sensor-fusion layer is designed to close.
 
 ## Roadmap (current thinking)
 
-The repo is at **Stage 11** of the longer research program. The next stages in
+The repo is at **Stage 12** of the longer research program. The next stages in
 order of value:
 
-1. **Adaptive detector consensus is the default.**  The simulator uses
-   `detector_consensus = "adaptive"`: soft (geometric-mean) consensus while it
-   still vouches for the sensors, then escalation to worst-of (`min`) once even
-   the soft opinion drops below the detector warning line.  It keeps `min`-level
-   hard-fault protection (bias.25 landed 0.841 vs 0.845, crash 0) while cutting
-   the benign-fault mission cost by ~33% (0.142 vs 0.212).  See
-   `docs/research-brief-10.md`.
-2. **Tune the escalation line** — decouple `adaptive_escalate` from
-   `detector_health_warn`, and weight the soft consensus by which monitor is
-   more locally trustworthy.
-3. **n≥30 per cell** — tighten confidence intervals around the adaptive/min
-   difference.
+1. **Adaptive consensus is the default and its escalation line is tuned.**
+   `detector_consensus = "adaptive"` soft consensus→worst-of escalation, and
+   `adaptive_escalate = 0.65` is decoupled from the warning line.  The
+   escalation sweep (`docs/research-brief-11.md`) found `adaptive@0.65` is the
+   best point: bias.25 landed 0.851 (≥ min 0.848), crash 0, **zero healthy
+   false alarm** (min false-lands 0.195 on healthy in this grid), benign mission
+   cost 0.105 vs min 0.175.
+2. **n≥30 grid** — confirm the 0.65 vs 0.55 difference and the healthy `min`
+   false-alarm finding.
+3. **Weighted soft consensus** — weight by which monitor is more locally
+   trustworthy (the landmark detector is cheap and geometry-only; the factor
+   graph is more sensitive).
 2. **Mission-aware RTL is opt-in and honestly limited.**  A ramping corrupt
    velocity source corrupts navigation before detection, so RTL is a guess
    there.  The useful design-in pieces (early source rejection, GPS-only state

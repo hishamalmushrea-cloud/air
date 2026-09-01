@@ -48,6 +48,11 @@ class SafetyConfig:
         # decisive on the genuine fault.
         self.detector_health_warn = 0.55
         self.detector_health_fail = 0.25
+        # Adaptive consensus escalation line: when the *soft* detector
+        # consensus drops below this value, the safety layer switches to the
+        # worst-of (min) opinion.  Decoupled from the warning line so an
+        # operator can tune "when to go hard" independently of "when to warn".
+        self.adaptive_escalate = 0.65
 
         # Time the condition must persist before reacting (s).
         self.grace_flow_warn_s = 1.0
