@@ -526,6 +526,7 @@ def consensus_study(
     mission_aware: bool = False,
     policies: list[tuple[str, bool, bool, str]] | None = None,
     adaptive_escalate: float = 0.65,
+    flow_reject_persist_s: float | None = None,
 ) -> list[dict]:
     """Compare consensus policies between the two independent detectors.
 
@@ -579,7 +580,8 @@ def consensus_study(
                                  "landmark_cluster": fault.get("landmark_cluster"),
                                  "factorgraph_flow_outage": fault.get("factorgraph_flow_outage"),
                                  "flow_bias_shift": float(fault.get("flow_bias_shift", 0.0)),
-                                 "flow_bias_window": fault.get("flow_bias_window")})
+                                 "flow_bias_window": fault.get("flow_bias_window"),
+                                 "flow_reject_persist_s": flow_reject_persist_s})
                 scenarios.append(s2)
             metrics_list = []
             outcomes = []
@@ -633,6 +635,9 @@ def consensus_main(argv=None) -> int:
     ap.add_argument("--transient-window", type=str, default="",
                     help="comma-separated 'start-end' overrides the transient \
                           fault window (fully contained flow bias), e.g. '8-18'")
+    ap.add_argument("--flow-reject-persist", type=str, default="",
+                    help="persistence gate (s) for flow-source rejection; \
+                          blank/None = immediate (default), e.g. '0.5'")
     ap.add_argument("--faults", type=str,
                     default="none,scale1.5,bias.1,bias.25",
                     help="comma-separated fault names from FAULT_PRESETS")
@@ -714,10 +719,12 @@ def consensus_main(argv=None) -> int:
             if f.get("flow_bias_shift", 0.0) != 0.0:
                 f["flow_bias_window"] = tw
 
+    persist = None if args.flow_reject_persist in (None, "") else float(args.flow_reject_persist)
     rows = consensus_study(faults=faults, n_per_cell=args.n, duration=args.duration,
                            seed=args.seed, mission_aware=args.mission_aware,
                            policies=policies,
-                           adaptive_escalate=args.adaptive_escalate)
+                           adaptive_escalate=args.adaptive_escalate,
+                           flow_reject_persist_s=persist)
     write_csv(rows, args.out)
     print(f"[cons] wrote {args.out}")
     return 0

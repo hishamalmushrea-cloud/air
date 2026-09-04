@@ -135,28 +135,24 @@ sensor-fusion layer is designed to close.
 
 ## Roadmap (current thinking)
 
-The repo is at **Stage 21** of the longer research program. The next stages in
+The repo is at **Stage 22** of the longer research program. The next stages in
 order of value:
 
-1. **Transient-fault false-rejection penalty is now measured and real.**
-   A new **transient** fault (`flow_bias_shift` active only inside
-   `flow_bias_window`, reset outside) fully contained in a sparse-FG outage
-   (8–18 s inside 5–28 s) is invisible to `fg_only` (as expected).  But
-   `lm_only` / worst-of **crashes 2/6** (crash time-frac 0.097) by rejecting the
-   recovering flow source *at the first transient warn* — the safety mode stays
-   `CRUISE`, the aircraft loses a source that would have healed, and it crashes.
-   `adaptive` lands 0.244 with 0 crash events (small scrape 0.016);
-   `adaptive_veto_trust` survives 0/6 crash with 0 false
-   reaction (`docs/research-brief-20.md`).
-2. **The principled next step is a persistence-gated source rejection**: only
-   reject the velocity source after independent detectors have been below warn
-   for a *sustained* window, so a transient warn can heal instead of stripping a
-   recovering source.  This is a design decision worth its own experiment
-   (immediate rejection is correct for persistent faults, harmful for
-   transients).
+1. **Persistence-gated flow rejection is a tradeoff, not a win (measured).**
+   We implemented the proposed gate (`--flow-reject-persist <s>`), and it is
+   kept **off by default (immediate rejection)** because it is not a strict
+   improvement: on the transient-hidden-in-sparse-FG grid it reduces the
+   landmark-only arm's crashes (2/6 → 1/6) but **worsens the adaptive arm**
+   (0 crash → 1/6), and on a persistent bias.25 it can *under-protect* the
+   landmark-only arm (delays rejection).  `adaptive_veto_trust` is unchanged and
+   remains the robust default mode
+   (`docs/research-brief-21.md`).
+2. **The right next design is recovery-aware decision-making** — a detector that
+   distinguishes "transient vs persistent", and only rejecting the source when
+   the consensus is *still* low AND the vehicle is heading out of bounds, with
+   optional re-enable after a demonstrated recovery.  That is its own experiment.
 3. **Then** physics/battery/per-sensor layers (motor/spin, prop, thermal,
-   ground-effect) and the learned-trust/veto arms are already statistical at
-   n=30 (brief #19).
+   ground-effect).
 2. **Mission-aware RTL is opt-in and honestly limited.**  A ramping corrupt
    velocity source corrupts navigation before detection, so RTL is a guess
    there.  The useful design-in pieces (early source rejection, GPS-only state

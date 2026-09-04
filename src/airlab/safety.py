@@ -60,6 +60,17 @@ class SafetyConfig:
         # angular diversity and therefore low trust, even though the count
         # looks healthy.
         self.detector_trust_floor = 0.45
+        # Persistence gate on flow-source *rejection* (s).  Default 0.0 = the
+        # original immediate-rejection behaviour (reject the corrupt velocity
+        # source at the first detector warn), which we keep because it is the
+        # characterised safe point for persistent faults.  Setting this >0 makes
+        # rejection wait until the detector consensus has been below warn for a
+        # sustained window.  Brief #21 shows this is a *tradeoff*, not a strict
+        # win: it reduces transient false-rejection crashes on a landmark-only
+        # arm (2/6 -> 1/6) but can increase persistent-fault crashes on that arm
+        # and can shift a transient result on the adaptive arm.  It is exposed
+        # as a tunable knob; the safer characterisation is to keep it at 0.
+        self.flow_reject_persist_s = 0.0
 
         # Time the condition must persist before reacting (s).
         self.grace_flow_warn_s = 1.0

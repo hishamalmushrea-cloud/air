@@ -76,6 +76,10 @@ class Scenario:
 
     # Principled factor-graph independent monitor
     factorgraph_enabled: bool = True
+    # Persistence gate on flow-source rejection (s).  None/0 = immediate
+    # (characterised default for persistent faults); >0 waits for a sustained
+    # detector warn, a tunable tradeoff documented in research-brief-21.
+    flow_reject_persist_s: Optional[float] = None
     # Sparse factor-graph window: the graph stops receiving flow factors
     # (under-determined) while the EKF keeps its flow aiding.  Isolates the FG
     # detector's weak-voice behaviour.
@@ -115,6 +119,7 @@ class Scenario:
         cfg.landmark_outage = self.landmark_outage
         cfg.landmark_cluster = self.landmark_cluster
         cfg.factorgraph_flow_outage = self.factorgraph_flow_outage
+        cfg.flow_reject_persist_s = self.flow_reject_persist_s
         cfg.factorgraph_enabled = self.factorgraph_enabled
         cfg.detector_consensus = self.detector_consensus
         cfg.adaptive_escalate = self.adaptive_escalate

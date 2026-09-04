@@ -80,6 +80,8 @@ class SimConfig:
         # Uncertainty-aware safety layer.
         self.safety_enabled = True
         self.safety_kwargs = {}
+        # Persistence gate on flow-source rejection (s).  See SafetyConfig.
+        self.flow_reject_persist_s = None   # None -> use SafetyConfig default
         # Optional parallel IMU dead-reckon / integrity check.  Currently off
         # by default: an open-loop IMU dead-reckon is not reliable enough as an
         # independent monitor over long outages (see research-brief-02).
@@ -258,6 +260,8 @@ class Simulator:
         self.safety = SafetyMonitor(SafetyConfig(**self.cfg.safety_kwargs))
         self.safety.cfg.enabled = self.cfg.safety_enabled
         self.safety.cfg.adaptive_escalate = float(self.cfg.adaptive_escalate)
+        if self.cfg.flow_reject_persist_s is not None:
+            self.safety.cfg.flow_reject_persist_s = float(self.cfg.flow_reject_persist_s)
         self.flow_integrity = VelocityIntegrityMonitor()
         self.flow_integrity.reset(self.vehicle.vel, self.vehicle.rpy)
         # IMU-only dead-reckon position, independent of the flow-fed EKF.
@@ -310,6 +314,7 @@ class Simulator:
         # controller.
         self.flow_rejected = False
         self._flow_reject_reason = "none"
+        self._det_low_accum = 0.0   # sustained seconds below detector warn
 
     def _detector_weight(self, kind: str) -> float:
         """Local measurement-availability weight for a detector.
@@ -667,15 +672,23 @@ class Simulator:
             if det_parts:
                 det_health = self._combine_detectors(det_parts)
                 # Detector-triggered source rejection: stop trusting the corrupt
-                # velocity-aiding source as soon as the independent monitors
-                # warn (not only at the LAND threshold).  Rejection must happen
-                # *early*: by the time the detector reaches the hard-fail
-                # threshold the corrupt velocity has usually already driven the
-                # aircraft off course, making any RTL a guess.
-                if det_health < self.safety.cfg.detector_health_warn and \
-                   not self.flow_rejected:
+                # velocity-aiding source once the independent monitors warn.
+                # Rejection used to be immediate at the first low tick; that
+                # strips a source that is only *transiently* bad (brief #20)
+                # and can turn a self-healing event into a crash.  A persistence
+                # gate keeps immediate rejection for genuine persistent faults
+                # (which stay low for seconds) while letting a brief warn
+                # recover.
+                persist_s = self.safety.cfg.flow_reject_persist_s
+                warn = self.safety.cfg.detector_health_warn
+                if det_health < warn:
+                    self._det_low_accum += dt
+                else:
+                    self._det_low_accum = 0.0
+                if det_health < warn and not self.flow_rejected and \
+                        self._det_low_accum >= persist_s:
                     self.flow_rejected = True
-                    self._flow_reject_reason = "independent_detector_warn"
+                    self._flow_reject_reason = "independent_detector_warn_persist"
                     # If an absolute fix is available, decisively reset the
                     # corrupted position/velocity state so the (trusted) GPS
                     # becomes the source of truth for the subsequent RTL.

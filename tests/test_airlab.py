@@ -446,6 +446,34 @@ class TestScenario(unittest.TestCase):
         self.assertGreater(m_lm["crash"], 0.0)
         self.assertEqual(m_tr["crash"], 0.0)
 
+    def test_flow_reject_persist_gate_is_a_tradeoff_not_a_win(self):
+        # The persistence gate is exposed as a tunable knob.  On the transient
+        # fault the immediate default (0.0) rejects early and can crash a
+        # landmark-only run; gating it to 2.0 avoids that crash (the warn only
+        # lasted ~0.2 s).  This asserts the knob works and is honest that it is
+        # a tradeoff, not a strict win.
+        from dataclasses import replace
+        from airlab.scenarios import random_scenario
+
+        rng = np.random.default_rng(909)
+        base = [random_scenario(rng, duration=40.0, index=k) for k in range(3)]
+        s = base[0]
+
+        def run_transient(persist):
+            kw = dict(flow_bias_shift=3.0, flow_bias_window=(8.0, 18.0),
+                      factorgraph_flow_outage=(5.0, 28.0),
+                      landmark_enabled=True, factorgraph_enabled=False,
+                      detector_consensus="min", safety_enabled=True,
+                      flow_reject_persist_s=persist)
+            sc = replace(s, **kw)
+            m, _ = run_scenario(sc, record=True)
+            return m["crash"], m["landed"]
+
+        c_imm, _ = run_transient(0.0)
+        c_gate, _ = run_transient(2.0)
+        self.assertGreater(c_imm, 0.0)   # immediate rejects the transient too early
+        self.assertEqual(c_gate, 0.0)    # gate lets the ~0.2 s warn recover
+
     def test_trust_veto_does_not_false_land_on_degenerate_parallax(self):
         # A camera that reports *many* features in a tiny angular cone (close
         # wall / low parallax) has high count but low angular-diversity trust.
