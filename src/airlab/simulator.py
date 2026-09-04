@@ -64,6 +64,11 @@ class SimConfig:
         self.flow_outage = None              # (start, end)
         self.flow_scale = 1.0
         self.flow_bias_ramp = 0.0
+        # Sparse factor-graph window: the graph stops receiving flow factors
+        # (under-determined) but the EKF keeps its flow aiding.  This isolates
+        # the independent FG detector's weak-voice / under-determined behaviour
+        # from the velocity-aiding itself.  See research-brief-18.
+        self.factorgraph_flow_outage = None  # (start, end)
 
         # Uncertainty-aware safety layer.
         self.safety_enabled = True
@@ -855,7 +860,12 @@ class Simulator:
                                         else (None, None))
                     flow_here = None
                     if self.cfg.flow_enabled:
-                        flow_here = self.sensors.sample_flow(self.vehicle)
+                        fg_flow_out = self.cfg.factorgraph_flow_outage
+                        in_fg_flow_out = (fg_flow_out is not None and
+                                          fg_flow_out[0] <= self.time < fg_flow_out[1])
+                        if not in_fg_flow_out:
+                            flow_here = self.sensors.sample_flow(self.vehicle)
+                        # else: sparse graph — no flow factor this frame.
                     ids_here, dirs_here = self.landmark_field.observe(self.vehicle)
                     # Seed the graph from the IMU preintegrator (clean relative
                     # pose since the last trusted anchor), NOT the flow-fed EKF.

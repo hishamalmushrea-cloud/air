@@ -72,6 +72,10 @@ class Scenario:
 
     # Principled factor-graph independent monitor
     factorgraph_enabled: bool = True
+    # Sparse factor-graph window: the graph stops receiving flow factors
+    # (under-determined) while the EKF keeps its flow aiding.  Isolates the FG
+    # detector's weak-voice behaviour.
+    factorgraph_flow_outage: Optional[tuple[float, float]] = None
 
     # Consensus policy between the independent detectors
     # ("min" / "max" / "geom" / "adaptive" / "weighted" / "adaptive_weighted"); adaptive is the recommended default.
@@ -104,6 +108,7 @@ class Scenario:
         cfg.landmark_enabled = self.landmark_enabled
         cfg.landmark_outage = self.landmark_outage
         cfg.landmark_cluster = self.landmark_cluster
+        cfg.factorgraph_flow_outage = self.factorgraph_flow_outage
         cfg.factorgraph_enabled = self.factorgraph_enabled
         cfg.detector_consensus = self.detector_consensus
         cfg.adaptive_escalate = self.adaptive_escalate

@@ -135,25 +135,23 @@ sensor-fusion layer is designed to close.
 
 ## Roadmap (current thinking)
 
-The repo is at **Stage 18** of the longer research program. The next stages in
+The repo is at **Stage 19** of the longer research program. The next stages in
 order of value:
 
-1. **Frame trust is now learned, not hand-set.**  `FrameTrustLearner`
-   (`src/airlab/trust.py`) gathers the sampled camera's RMS angular spread +
-   observed landmark count during the first 6 s of a healthy run, then scores
-   every later frame against that learned distribution.  It replaces the
-   hand-set `count/3` and `rms/1.2` with a self-calibrated reference (e.g.
-   scen1: `ref=1.646 rad, count_ref=6.00`), and it **never uses the detector's
-   own verdict**, so a faulty detector cannot down-weight itself
-   (`docs/research-brief-17.md`).
-2. **Degenerate-parallax discrimination is preserved.**  With the learned model,
-   `adaptive_veto_trust` still stays healthy under a high-count / low-diversity
-   camera (0.000 false land) while `adaptive_veto` false-lands 0.748; it still
-   lands real faults (bias.25 0.844, crash 0).  Outage regression remains
-   identical to `adaptive_veto`.  `adaptive_veto_trust` is now the recommended
-   mode for feature-degenerate flight.
-3. **Sparse factor-graph outage** experiment (under-determined graph as a
-   first-class failure), then n≥30 for headline crash numbers.
+1. **Sparse factor-graph outage is a first-class failure (implemented).**
+   `--fg-flow-outage start-end` removes flow factors from the factor graph only
+   (EKF flow aiding unchanged), producing an **under-determined but healthy**
+   graph (`comp=0, trust=0, health≈1.0`).  Healthy missions complete with
+   **0.000 false land** under every policy; persistent faults are still detected
+   after the graph recovers (scale1.5 0.529, bias.25 0.844, crash 0), and
+   `adaptive_veto_trust` matches the other arms.  The trust guard correctly
+   treats the sparse graph as thin (may trigger, may not veto)
+   (`docs/research-brief-18.md`).
+2. **A transient flow fault fully contained inside the sparse window** is the
+   next honest experiment (needs a transient fault preset); the persistent-fault
+   result does not exercise the worst case.
+3. **n≥30 statistical grid** for the headline crash numbers (the unwatched
+   bias.25 crash at n=3 has a wide CI; detector arms are all zero-crash).
 2. **Mission-aware RTL is opt-in and honestly limited.**  A ramping corrupt
    velocity source corrupts navigation before detection, so RTL is a guess
    there.  The useful design-in pieces (early source rejection, GPS-only state

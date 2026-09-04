@@ -391,6 +391,33 @@ class TestScenario(unittest.TestCase):
         # count reference should be learned, not hard-coded /3.
         self.assertAlmostEqual(lm.count_ref, 5.0, places=1)
 
+    def test_sparse_factorgraph_is_clean_healthy_and_detects_bias(self):
+        # A sparse/under-determined factor graph (no flow factors for the FG
+        # only, EKF flow aiding unchanged) must not false-alarm a healthy
+        # mission, and must still allow detection of a real fault once the
+        # graph recovers.
+        from dataclasses import replace
+        from airlab.scenarios import random_scenario
+
+        rng = np.random.default_rng(909)
+        random_scenario(rng, duration=40.0, index=0)
+        s = random_scenario(rng, duration=40.0, index=1)
+
+        # healthy + sparse graph
+        s_h = replace(s, factorgraph_flow_outage=(8.0, 28.0),
+                      detector_consensus="adaptive_veto_trust")
+        m, _ = run_scenario(s_h, record=True)
+        self.assertEqual(m["safety_outcome"], "completed")
+        self.assertEqual(m["crash"], 0.0)
+        self.assertEqual(m["landed"], 0.0)
+
+        # persistent bias.25 + sparse graph: still detected after recovery
+        s_f = replace(s, flow_bias_ramp=0.25, factorgraph_flow_outage=(8.0, 28.0),
+                      detector_consensus="adaptive_veto_trust")
+        m_f, _ = run_scenario(s_f, record=True)
+        self.assertEqual(m_f["crash"], 0.0)
+        self.assertGreater(m_f["landed"], 0.4)
+
     def test_trust_veto_does_not_false_land_on_degenerate_parallax(self):
         # A camera that reports *many* features in a tiny angular cone (close
         # wall / low parallax) has high count but low angular-diversity trust.

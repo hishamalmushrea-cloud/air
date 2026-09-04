@@ -570,7 +570,8 @@ def consensus_study(
                                  "adaptive_escalate": adaptive_escalate,
                                  "mission_aware": mission_aware,
                                  "landmark_outage": fault.get("landmark_outage"),
-                                 "landmark_cluster": fault.get("landmark_cluster")})
+                                 "landmark_cluster": fault.get("landmark_cluster"),
+                                 "factorgraph_flow_outage": fault.get("factorgraph_flow_outage")})
                 scenarios.append(s2)
             metrics_list = []
             outcomes = []
@@ -617,6 +618,10 @@ def consensus_main(argv=None) -> int:
                     help="comma-separated 'start-end' window applied to ALL faults \
                           (degenerate-parallax camera: many features in a tight \
                           cone), e.g. '10-35'")
+    ap.add_argument("--fg-flow-outage", type=str, default="",
+                    help="comma-separated 'start-end' window applied to ALL faults \
+                          (sparse/under-determined factor graph: no flow factors \
+                          for the FG only; EKF flow aiding is unchanged), e.g. '10-35'")
     ap.add_argument("--faults", type=str,
                     default="none,scale1.5,bias.1,bias.25",
                     help="comma-separated fault names from FAULT_PRESETS")
@@ -674,6 +679,17 @@ def consensus_main(argv=None) -> int:
             return 1
         for f in faults:
             f["landmark_cluster"] = lm_cluster
+
+    # Optional sparse factor-graph (under-determined) window.
+    if args.fg_flow_outage:
+        try:
+            s, e = args.fg_flow_outage.split("-")
+            fg_out = (float(s), float(e))
+        except Exception:
+            print("[cons] bad --fg-flow-outage (expected 'start-end')")
+            return 1
+        for f in faults:
+            f["factorgraph_flow_outage"] = fg_out
 
     rows = consensus_study(faults=faults, n_per_cell=args.n, duration=args.duration,
                            seed=args.seed, mission_aware=args.mission_aware,
