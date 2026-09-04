@@ -135,23 +135,22 @@ sensor-fusion layer is designed to close.
 
 ## Roadmap (current thinking)
 
-The repo is at **Stage 19** of the longer research program. The next stages in
+The repo is at **Stage 20** of the longer research program. The next stages in
 order of value:
 
-1. **Sparse factor-graph outage is a first-class failure (implemented).**
-   `--fg-flow-outage start-end` removes flow factors from the factor graph only
-   (EKF flow aiding unchanged), producing an **under-determined but healthy**
-   graph (`comp=0, trust=0, health≈1.0`).  Healthy missions complete with
-   **0.000 false land** under every policy; persistent faults are still detected
-   after the graph recovers (scale1.5 0.529, bias.25 0.844, crash 0), and
-   `adaptive_veto_trust` matches the other arms.  The trust guard correctly
-   treats the sparse graph as thin (may trigger, may not veto)
-   (`docs/research-brief-18.md`).
-2. **A transient flow fault fully contained inside the sparse window** is the
-   next honest experiment (needs a transient fault preset); the persistent-fault
-   result does not exercise the worst case.
-3. **n≥30 statistical grid** for the headline crash numbers (the unwatched
-   bias.25 crash at n=3 has a wide CI; detector arms are all zero-crash).
+1. **n=30 statistical confirmation is in place.**  On bias.25 + landmark outage
+   (30 paired runs, seed 909): `none` has **3/30 crash events** (crash time-
+   fraction 0.021, 95% CI for the rate 3.5%–25.6%), while `adaptive` and
+   `adaptive_veto_trust` are **identical** (0/30 crash, 0.892 in-bounds, 0.817
+   landed).  Healthy + outage: 30/30 completed, 0.000 false land.  The detector
+   arms are now statistically credible, not a small-sample artifact.  Note that
+   the CSV `mean_crash` is a time-fraction (2.1%), *not* the crash rate (10%);
+   both are reported (`docs/research-brief-19.md`).
+2. **The learned trust guardrail is zero-cost**: it is identical to `adaptive`
+   on this grid and removes the degenerate-parallax false land from brief #16.
+3. **Next**: a genuinely transient flow fault fully inside the sparse-FG window
+   (needs a transient-fault preset), and then physics/battery/per-sensor
+   layers.
 2. **Mission-aware RTL is opt-in and honestly limited.**  A ramping corrupt
    velocity source corrupts navigation before detection, so RTL is a guess
    there.  The useful design-in pieces (early source rejection, GPS-only state
