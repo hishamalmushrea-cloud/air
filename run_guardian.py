@@ -174,6 +174,44 @@ def main() -> int:
           f"trend={prognosis.trend:.4f}/s critical={[h.subsystem for h in final_scores if h.degraded]} "
           f"guardian_mode={final_dec.mode}")
     print(f"[guardian] wrote out/guardian/health.csv")
+
+    # Guardian oracle inside the real mission controller (brief-25).
+    # We build a real Simulator, put an obstacle on the straight mission path,
+    # and let the PredictiveRePlanner swap the remaining waypoints for a
+    # lower-risk corridor mid-flight.
+    from airlab.simulator import Simulator, SimConfig
+    cfg = SimConfig()
+    cfg.duration = 14.0
+    cfg.cruise_speed = 2.0
+    cfg.waypoints = [(0, 0, 2), (12, 0, 2), (24, 0, 2)]
+    cfg.guardian_replan = True
+    cfg.guardian_replan_period_s = 2.0
+    cfg.guardian_obstacles = [
+        ([12.0, 0.0, -2.0], [0.0, 0.0, 0.0], 1.5),
+    ]
+    sim = Simulator(cfg)
+    run = sim.run()
+    bridge = sim.guardian_bridge
+    events = getattr(bridge, "history", None).events if bridge else []
+    modes = getattr(bridge, "history", None).modes if bridge else []
+    _write("out/guardian/sim_bridge.csv", [{
+        "applied": int(bool(bridge and bridge.applied)),
+        "risk_reduction": round(float(events[-1]["risk_reduction"]) if events else 0.0, 4),
+        "bas_risk": round(float(events[-1]["bas_risk"]) if events else 0.0, 4),
+        "repl_risk": round(float(events[-1]["repl_risk"]) if events else 0.0, 4),
+        "extra_frac": round(float(events[-1]["extra_frac"]) if events else 0.0, 4),
+        "clearance_m": round(float(events[-1]["clearance_m"]) if events else 0.0, 3),
+        "n_events": len(events),
+        "n_land": int(sum(1 for m in run.mode if m == "LAND")),
+    }])
+    print(f"[guardian][sim_bridge] applied={bridge and bridge.applied} "
+          f"events={len(events)} modes={modes} n_land={sum(1 for m in run.mode if m == 'LAND')}")
+    if events:
+        e = events[-1]
+        print(f"[guardian][sim_bridge] routes around obstacle: risk "
+              f"{e['bas_risk']:.3f}->{e['repl_risk']:.3f} (red {e['risk_reduction']:.3f}), "
+              f"clearance {e['clearance_m']:.2f}m, extra {e['extra_frac']:.2%}")
+    print(f"[guardian] wrote out/guardian/sim_bridge.csv")
     return 0
 
 

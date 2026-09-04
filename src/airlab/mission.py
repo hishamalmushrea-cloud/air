@@ -98,6 +98,32 @@ class WaypointMission:
     def completed(self) -> bool:
         return self.seg_idx >= len(self.wp_ned) - 2
 
+    def remaining_ned(self) -> list[np.ndarray]:
+        """Remaining waypoints (NED), starting at the current active target."""
+        if self.completed:
+            return []
+        return [self.wp_ned[i].copy() for i in range(self.seg_idx + 1,
+                                                    len(self.wp_ned))]
+
+    def set_route_ned(self, route_ned: list[np.ndarray],
+                      reset: bool = True) -> None:
+        """Replace the remaining route (NED).
+
+        ``route_ned`` is the *future* polyline after the current position
+        (i.e. the first entry is the next target), not a full path that
+        includes the aircraft's current position.  Used by the guardian
+        predictive re-planner (``airlab.guardian.sim_bridge``) to swap the
+        active mission onto a lower-risk corridor without re-constructing the
+        whole mission.
+        """
+        arr = [np.asarray(w, dtype=float).reshape(3) for w in route_ned]
+        if len(arr) < 2:
+            raise ValueError("route needs at least 2 waypoints")
+        self.wp_ned = np.array(arr)
+        if reset:
+            self.seg_idx = 0
+            self.distance_traveled = 0.0
+
     @property
     def progress(self) -> float:
         # simple normalized progress on current segment

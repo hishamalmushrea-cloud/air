@@ -162,10 +162,16 @@ the remote/attack surface is intentionally defensive only (no weapons/targeting)
    maintenance state (`predictive_maintenance_health`).  Demo: healthy stays out
    of critical, degraded all-critical → guardian ABORT
    (`docs/research-brief-24.md`).
-4. **Next** consume real simulator telemetry in the health engine (currently
-   synthetic features), then a thermal model + GCS health dashboard, then a
-   learned risk prior from flight/jam telemetry, then port the re-planned route
-   into the real mission controller, then the neuromorphic/edge energy path.
+4. **Guardian oracle ported into the real mission controller (implemented).**
+   `MissionReplanBridge` calls the predictive re-planner against the *live*
+   `WaypointMission` inside `Simulator` and swaps only the future polyline when
+   it is strictly safer (risk reduction, clearance, bounded detour, energy
+   feasible) and never fights the safety FSM.  Demo: straight mission through a
+   1.5 m obstacle → route swaps mid-flight, risk 0.459→0.001, clearance 5.16 m,
+   +20 % distance, 0 landings (`docs/research-brief-25.md`).
+5. **Next (priority #2)** feed the health engine real simulator telemetry, then
+   the low-watt thermal model + learned risk prior from flight/jam telemetry,
+   then the neuromorphic/edge energy and perception path.
 
 ---
 

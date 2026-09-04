@@ -136,6 +136,67 @@ class TestHealth(unittest.TestCase):
         self.assertIn("predictive_maintenance_health", dec.declared_used)
 
 
+class TestSimBridge(unittest.TestCase):
+    def _bridge(self, obstacle=True, battery=1.0):
+        from airlab.mission import WaypointMission
+        from airlab.guardian import MissionReplanBridge
+        mission = WaypointMission([(0, 0, 2), (8, 0, 2), (16, 0, 2)], speed=2.0)
+        start = np.array([0.0, 0.0, -2.0])
+        obstacles = ([[np.array([8.0, 0.0, -2.0]), np.array([0.0, 0.0, 0.0]), 1.0]]
+                     if obstacle else [])
+        return mission, MissionReplanBridge(
+            mission, start, battery_frac=battery, obstacles=obstacles,
+            config=None)
+
+    def test_bridge_applies_safe_detour_around_obstacle(self):
+        mission, bridge = self._bridge(obstacle=True, battery=1.0)
+        res = bridge.try_replan(t=0.0, force=True)
+        self.assertIsNotNone(res)
+        self.assertTrue(res.feasible)
+        self.assertTrue(res.risk_reduction > 0.05)
+        self.assertTrue(res.min_clearance_m >= 2.0)
+        self.assertTrue(bridge.applied)
+        self.assertIn("applied", bridge.history.modes)
+        # The mission is no longer a straight line through the obstacle.
+        corners = [tuple(np.round(w[:2], 1)) for w in mission.wp_ned]
+        self.assertNotEqual(corners[0][1], 0.0)
+
+    def test_bridge_refuses_risky_route_on_low_battery(self):
+        mission, bridge = self._bridge(obstacle=True, battery=0.02)
+        res = bridge.try_replan(t=0.0, force=True)
+        self.assertIsNotNone(res)
+        self.assertFalse(res.feasible)
+        self.assertFalse(bridge.applied)
+        self.assertIn("rejected_energy", bridge.history.modes)
+
+    def test_bridge_refuses_no_gain_if_no_threat(self):
+        mission, bridge = self._bridge(obstacle=False, battery=1.0)
+        res = bridge.try_replan(t=0.0, force=True)
+        self.assertIsNotNone(res)
+        self.assertFalse(bridge.applied)
+        self.assertIn("rejected_low_gain", bridge.history.modes)
+
+    def test_simulator_uses_guardian_bridge(self):
+        from airlab.simulator import Simulator, SimConfig
+        cfg = SimConfig()
+        cfg.duration = 12.0
+        cfg.cruise_speed = 2.0
+        # Straight mission that flies directly through an obstacle at (8, 4?).
+        cfg.waypoints = [(0, 0, 2), (12, 0, 2), (24, 0, 2)]
+        cfg.guardian_replan = True
+        cfg.guardian_replan_period_s = 2.0
+        cfg.guardian_obstacles = [
+            ([12.0, 0.0, -2.0], [0.0, 0.0, 0.0], 1.5),
+        ]
+        sim = Simulator(cfg)
+        self.assertIsNotNone(sim.guardian_bridge)
+        run = sim.run()
+        self.assertTrue(hasattr(run, "mode"))
+        self.assertTrue(sim.guardian_bridge.applied)
+        lands = [m for m in run.mode if m == "LAND"]
+        self.assertEqual(len(lands), 0)
+
+
 class TestRiskAndReplan(unittest.TestCase):
     def test_risk_field_penalises_obstacle_and_route_is_replanned(self):
         from airlab.guardian import (RiskWorldModel, PredictiveRePlanner, Obstacle)

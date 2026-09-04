@@ -23,6 +23,7 @@ from .drone_nexus import NexusAirV2, NexusSpec
 from .risk import RiskWorldModel, RiskField
 from .replan import PredictiveRePlanner, ReplanResult
 from .health import HealthScore, SubsystemHealth, HealthPrognosis, simulated_features
+from .sim_bridge import MissionReplanBridge, BridgeConfig, BridgeHistory
 
 __all__ = [
     "GuardianState",
@@ -43,4 +44,7 @@ __all__ = [
     "SubsystemHealth",
     "HealthPrognosis",
     "simulated_features",
+    "MissionReplanBridge",
+    "BridgeConfig",
+    "BridgeHistory",
 ]

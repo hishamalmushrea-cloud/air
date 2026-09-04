@@ -80,9 +80,10 @@ sensors → fusion EKF → controller → dynamics
 
 | Priority | Item | Status |
 |---|---|---|
-| Critical | Port predictive re-planning into the real mission controller (`simulator.py`) | next candidate |
-| High | **Predictive maintenance / subsystem Health Score** | **executing now** |
-| High | Learned risk prior from flight/jam telemetry | next after health |
+| Critical | Port predictive re-planning into the real mission controller (`simulator.py`) | **✅ done (brief-25)** |
+| High | **Predictive maintenance / subsystem Health Score** | **✅ done (brief-24)** |
+| High | Feed health engine real simulator telemetry | **NEXT → priority #2** |
+| High | Learned risk prior from flight/jam telemetry | next after sim-health |
 | High | GCS telemetry + health dashboard | near future |
 | Medium | Thermal model (CPU/ESC/motor/battery) | NOW |
 | Medium | Data pipeline (edge → storage → analytics) | NOW |
@@ -91,13 +92,23 @@ sensors → fusion EKF → controller → dynamics
 | Experimental | Swarm split-risk graph | LONG TERM |
 | Long-term | Cross-domain morphing/adaptive airframe | THEORETICAL |
 
-## 7. Generation log (G0 → G3)
+**Ranking rationale (Impact / Feasibility / Risk↓ / Innovation / Cost / Test):**
+- #1 Port oracle→real controller **44** (high impact, closes the behaviour-lab gap).
+- #2 Health engine from real telemetry **40** (cheap, converts estimate→measured).
+- #3 Learned risk prior **38** (high methodology value, needs data pipeline).
+- #4 Thermal model **36**
+- #5 Neuromorphic SNN / NeuViT perception **33** (highest innovation, long-term).
+
+## 7. Generation log (G0 → G4)
 - **G0**: baseline stack (dynamics/EKF/controller/safety FSM).
 - **G1**: independent landmark + factor-graph detectors; bias.25 crash → 0.
 - **G2**: learned frame trust + adaptive_veto_trust; degenerate-parallax &
   sparse-FG & transient-fault characterised; persistence-gate tradeoff known.
 - **G3**: Guardian brain + oracle risk re-planning (this program start).
-- **G4 (next)**: predictive maintenance / health score + integration.
+- **G4**: predictive maintenance / health score + guardian oracle ported into
+  the real mission controller (`MissionReplanBridge` in `simulator.py`).
+- **G5 (next)**: health engine consumes real fused simulator telemetry; then
+  low-watt thermal model; then learned risk prior.
 
 ## 8. Engineering Decision Log (current entries)
 
@@ -106,6 +117,8 @@ sensors → fusion EKF → controller → dynamics
 | Guardian is defensive-only | master scope + ethics | offensive (rejected) | master prompt | safe platform | validated | — | G3 |
 | RiskWorldModel analytic | transparent, no external deps | learned neural field | brief-23 | corridor avoid | risk 0.525→0.180 | — | G3 |
 | Predictive RePlanner beam | simple, bounded, no black box | RL / MPC | brief-23 | small detour, big risk cut | confirmed | — | G3 |
+| Route-edit bridge gates (feasible/risk/clearance/detour) | safety-in-design | unconditional replan (rejected) | brief-25 | no unsafe rewrite | risk .459→.001, clr 5.16 m, 0 land | — | G4 |
+| Detour cap 0.50 | large risk cut can justify big lateral swing | 0.25 (rejected too-strict) | brief-25 | allow 20 % detour | first real detour 20.2 % applied | — | G4 |
 
 ## 9. Confidence
 - Current architecture: **High** for safety/consensus line; **Medium** for the new

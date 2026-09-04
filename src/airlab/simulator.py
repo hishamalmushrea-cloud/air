@@ -24,6 +24,7 @@ from .energy import PowerModel
 from .landmarks import LandmarkField, LandmarkConsistency
 from .factorgraph import SlidingFactorGraph, build_keyframe, ImuPreintegrator
 from .trust import FrameTrustLearner
+from .guardian.sim_bridge import MissionReplanBridge, BridgeConfig
 
 
 def _cone_bearing(axis: np.ndarray, a_rad: float, b_rad: float) -> np.ndarray:
@@ -173,6 +174,19 @@ class SimConfig:
         ]
         self.cruise_speed = 2.0
 
+        # Guardian oracle predictive re-planning (brief-23/24): when enabled the
+        # real mission controller asks the guardian's PredictiveRePlanner to
+        # swap the remaining waypoints for a lower-risk corridor.  Obstacles are
+        # (pos, vel, radius) NED triples; jamming_centers are NED points.
+        self.guardian_replan = False
+        self.guardian_obstacles: list = []
+        self.guardian_jamming_centers: list = []
+        self.guardian_replan_period_s = 2.0
+        self.guardian_min_risk_reduction = 0.02
+        self.guardian_min_clearance_m = 2.0
+        self.guardian_max_extra_frac = 0.50
+        self.guardian_replan_kwargs: dict = {}
+
 
 class SimRun:
     """A single simulation run; keeps every recorded signal."""
@@ -279,6 +293,23 @@ class Simulator:
         # Online energy accounting for mission-aware emergency response.
         self.power_model = PowerModel(battery_capacity_wh=self.cfg.battery_capacity_wh)
         self._energy_wh_used = 0.0
+        # Guardian oracle route editor (disabled unless cfg.guardian_replan).
+        self.guardian_bridge: MissionReplanBridge | None = None
+        if self.cfg.guardian_replan:
+            self.guardian_bridge = MissionReplanBridge(
+                self.mission,
+                self.ekf.pos,
+                battery_frac=1.0,
+                obstacles=self.cfg.guardian_obstacles,
+                jamming_centers=self.cfg.guardian_jamming_centers,
+                config=BridgeConfig(
+                    replan_period_s=self.cfg.guardian_replan_period_s,
+                    min_risk_reduction=self.cfg.guardian_min_risk_reduction,
+                    min_clearance_m=self.cfg.guardian_min_clearance_m,
+                    max_extra_distance_frac=self.cfg.guardian_max_extra_frac,
+                    **self.cfg.guardian_replan_kwargs,
+                ),
+            )
         self.rng = np.random.default_rng(self.cfg.seed)
         self.time = 0.0
         self.last_imu = None
@@ -560,6 +591,11 @@ class Simulator:
     def _gps_available(self) -> bool:
         return self.sensors.cfg.gps_dropout <= 0.0
 
+    def _battery_frac(self) -> float:
+        """Remaining battery fraction from the power model (guardian bridge)."""
+        capacity = max(self.power_model.capacity_wh, 1e-9)
+        return float(max(0.0, 1.0 - self._energy_wh_used / capacity))
+
     def _base(self) -> np.ndarray:
         return np.asarray(self.cfg.base_pos, dtype=float).reshape(2)
 
@@ -712,6 +748,17 @@ class Simulator:
             self._last_unc_std = dec.uncertainty_std
 
             # ---- mission desired state using *estimated* position ----
+            if self.guardian_bridge is not None:
+                # Only let the oracle rewrite the route while the safety FSM
+                # still wants to fly (not during HOLD/LAND/landing), so a
+                # predictive detour can never fight a safety decision.
+                if dec.mode in (CRUISE, HOLD):
+                    self.guardian_bridge.update_telem(
+                        self.ekf.pos,
+                        self._battery_frac(),
+                        self.time,
+                    )
+                    self.guardian_bridge.try_replan(self.time)
             pos_ref, vel_ref, yaw_ref = self.mission.desired(self.ekf.pos, dt)
             pos_ref, vel_ref = self._safety_override(pos_ref, vel_ref, yaw_ref, dec.mode)
 
@@ -738,10 +785,10 @@ class Simulator:
                 )
             self.last_control = control
 
-            # ---- online energy accounting (drives mission-aware RTL) ----
-            if self.cfg.mission_aware:
-                specific = float(control[0])
-                self._energy_wh_used += self.power_model.power(specific) * dt / 3600.0
+            # ---- online energy accounting (drives mission-aware RTL + the
+            # guardian bridge's energy-feasibility check) ----
+            specific = float(control[0])
+            self._energy_wh_used += self.power_model.power(specific) * dt / 3600.0
 
             # ---- plant ----
             self.vehicle.step(control, dt, wind_ned=self.cfg.wind_ned)
