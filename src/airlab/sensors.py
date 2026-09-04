@@ -43,6 +43,11 @@ class SensorConfig:
         self.baro_drift = 0.01          # m/s (pressure-like drift)
         self.flow_bias_init = np.array([0.02, -0.015, 0.0])   # m/s
         self.flow_bias_walk = 0.002
+        # Transient additive bias (m/s) applied only while a fault window is
+        # active; reset to 0.0 outside it.  Distinct from flow_bias_ramp, which
+        # accumulates permanently.  Enables a fault that is fully contained in a
+        # time window (used to test a fault hidden inside a sparse-FG outage).
+        self.flow_bias_shift = 0.0
 
         # faults (0 => none).  These mutate over time.
         self.gps_dropout = 0.0          # seconds remaining of GPS outage
@@ -139,7 +144,8 @@ class SensorSuite:
             return None
         true_vel = veh.vel
         scaled = true_vel * self.cfg.flow_scale
-        return scaled + self._flow_bias + self.cfg.flow_sigma * self.rng.standard_normal(3)
+        return (scaled + self._flow_bias + self.cfg.flow_bias_shift
+                + self.cfg.flow_sigma * self.rng.standard_normal(3))
 
     def sample_gps(self, veh) -> tuple[np.ndarray, np.ndarray] | None:
         if self.cfg.gps_dropout > 0.0:

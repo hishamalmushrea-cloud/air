@@ -418,6 +418,34 @@ class TestScenario(unittest.TestCase):
         self.assertEqual(m_f["crash"], 0.0)
         self.assertGreater(m_f["landed"], 0.4)
 
+    def test_transient_in_sparse_fg_does_not_crash_under_trust(self):
+        # A transient velocity-bias fault fully contained inside a sparse-FG
+        # outage (the FG has no flow factors while the fault exists) is invisible
+        # to the factor graph.  A landmark-only "worst-of" arm reacts to this
+        # self-recovering fault by rejecting the recovering flow source and can
+        # crash; adaptive_veto_trust is conservative (does not false-reject a
+        # recovering source) and survives.
+        from dataclasses import replace
+        from airlab.scenarios import random_scenario
+
+        rng = np.random.default_rng(909)
+        base = [random_scenario(rng, duration=40.0, index=k) for k in range(3)]
+        s = base[0]
+
+        fault = dict(flow_bias_shift=3.0, flow_bias_window=(8.0, 18.0),
+                     factorgraph_flow_outage=(5.0, 28.0), safety_enabled=True)
+
+        # worst-of landmark-only: reacts to the transient & crashes scen0
+        s_lm = replace(s, **fault, landmark_enabled=True, factorgraph_enabled=False,
+                       detector_consensus="min")
+        m_lm, _ = run_scenario(s_lm, record=True)
+        # trust arm: conservative, does not over-react to a recovering source
+        s_tr = replace(s, **fault, landmark_enabled=True, factorgraph_enabled=True,
+                       detector_consensus="adaptive_veto_trust")
+        m_tr, _ = run_scenario(s_tr, record=True)
+        self.assertGreater(m_lm["crash"], 0.0)
+        self.assertEqual(m_tr["crash"], 0.0)
+
     def test_trust_veto_does_not_false_land_on_degenerate_parallax(self):
         # A camera that reports *many* features in a tiny angular cone (close
         # wall / low parallax) has high count but low angular-diversity trust.

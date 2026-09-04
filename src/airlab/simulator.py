@@ -64,6 +64,13 @@ class SimConfig:
         self.flow_outage = None              # (start, end)
         self.flow_scale = 1.0
         self.flow_bias_ramp = 0.0
+        # Transient velocity-aiding bias: a constant additive bias (m/s) applied
+        # only inside a time window and reset outside it.  Unlike flow_bias_ramp
+        # it does NOT accumulate, so the fault is genuinely gone the instant the
+        # window closes — this is the state we use to test a fault fully
+        # contained inside a sparse-FG outage.
+        self.flow_bias_shift = 0.0            # m/s, active strength
+        self.flow_bias_window = None          # (start, end) seconds
         # Sparse factor-graph window: the graph stops receiving flow factors
         # (under-determined) but the EKF keeps its flow aiding.  This isolates
         # the independent FG detector's weak-voice / under-determined behaviour
@@ -539,6 +546,11 @@ class Simulator:
                 self.sensors.cfg.flow_dropout = 0.0
         self.sensors.cfg.flow_scale = self.cfg.flow_scale
         self.sensors.cfg.flow_bias_ramp = self.cfg.flow_bias_ramp
+        # Transient bias is only present while the fault window is active; it is
+        # reset to 0 outside so the fault does not persist after the window.
+        in_shift = (self.cfg.flow_bias_window is not None and
+                    self.cfg.flow_bias_window[0] <= self.time < self.cfg.flow_bias_window[1])
+        self.sensors.cfg.flow_bias_shift = self.cfg.flow_bias_shift if in_shift else 0.0
 
     def _gps_available(self) -> bool:
         return self.sensors.cfg.gps_dropout <= 0.0

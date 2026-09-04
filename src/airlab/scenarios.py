@@ -60,6 +60,10 @@ class Scenario:
     flow_outage: Optional[tuple[float, float]] = None
     flow_scale: float = 1.0
     flow_bias_ramp: float = 0.0
+    # Transient velocity-aiding bias (m/s) applied only inside this window and
+    # reset outside it.  Used for a fault fully contained in a sparse-FG outage.
+    flow_bias_shift: float = 0.0
+    flow_bias_window: Optional[tuple[float, float]] = None
 
     # Uncertainty-aware safety layer + independent landmark detector
     safety_enabled: bool = True
@@ -104,6 +108,8 @@ class Scenario:
         cfg.flow_outage = self.flow_outage
         cfg.flow_scale = self.flow_scale
         cfg.flow_bias_ramp = self.flow_bias_ramp
+        cfg.flow_bias_shift = self.flow_bias_shift
+        cfg.flow_bias_window = self.flow_bias_window
         cfg.safety_enabled = self.safety_enabled
         cfg.landmark_enabled = self.landmark_enabled
         cfg.landmark_outage = self.landmark_outage

@@ -135,22 +135,28 @@ sensor-fusion layer is designed to close.
 
 ## Roadmap (current thinking)
 
-The repo is at **Stage 20** of the longer research program. The next stages in
+The repo is at **Stage 21** of the longer research program. The next stages in
 order of value:
 
-1. **n=30 statistical confirmation is in place.**  On bias.25 + landmark outage
-   (30 paired runs, seed 909): `none` has **3/30 crash events** (crash time-
-   fraction 0.021, 95% CI for the rate 3.5%–25.6%), while `adaptive` and
-   `adaptive_veto_trust` are **identical** (0/30 crash, 0.892 in-bounds, 0.817
-   landed).  Healthy + outage: 30/30 completed, 0.000 false land.  The detector
-   arms are now statistically credible, not a small-sample artifact.  Note that
-   the CSV `mean_crash` is a time-fraction (2.1%), *not* the crash rate (10%);
-   both are reported (`docs/research-brief-19.md`).
-2. **The learned trust guardrail is zero-cost**: it is identical to `adaptive`
-   on this grid and removes the degenerate-parallax false land from brief #16.
-3. **Next**: a genuinely transient flow fault fully inside the sparse-FG window
-   (needs a transient-fault preset), and then physics/battery/per-sensor
-   layers.
+1. **Transient-fault false-rejection penalty is now measured and real.**
+   A new **transient** fault (`flow_bias_shift` active only inside
+   `flow_bias_window`, reset outside) fully contained in a sparse-FG outage
+   (8–18 s inside 5–28 s) is invisible to `fg_only` (as expected).  But
+   `lm_only` / worst-of **crashes 2/6** (crash time-frac 0.097) by rejecting the
+   recovering flow source *at the first transient warn* — the safety mode stays
+   `CRUISE`, the aircraft loses a source that would have healed, and it crashes.
+   `adaptive` lands 0.244 with 0 crash events (small scrape 0.016);
+   `adaptive_veto_trust` survives 0/6 crash with 0 false
+   reaction (`docs/research-brief-20.md`).
+2. **The principled next step is a persistence-gated source rejection**: only
+   reject the velocity source after independent detectors have been below warn
+   for a *sustained* window, so a transient warn can heal instead of stripping a
+   recovering source.  This is a design decision worth its own experiment
+   (immediate rejection is correct for persistent faults, harmful for
+   transients).
+3. **Then** physics/battery/per-sensor layers (motor/spin, prop, thermal,
+   ground-effect) and the learned-trust/veto arms are already statistical at
+   n=30 (brief #19).
 2. **Mission-aware RTL is opt-in and honestly limited.**  A ramping corrupt
    velocity source corrupts navigation before detection, so RTL is a guess
    there.  The useful design-in pieces (early source rejection, GPS-only state

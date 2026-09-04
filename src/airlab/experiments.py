@@ -509,6 +509,12 @@ FAULT_PRESETS = {
     "bias.05":  {"name": "bias.05",  "scale": 1.0, "bias_ramp": 0.05},
     "bias.1":   {"name": "bias.1",   "scale": 1.0, "bias_ramp": 0.10},
     "bias.25":  {"name": "bias.25",  "scale": 1.0, "bias_ramp": 0.25},
+    # Transient bias fully contained in a window: appears then vanishes, so it
+    # is invisible to a factor graph that had no flow factors during the window.
+    "transient.3": {
+        "name": "transient.3", "scale": 1.0, "bias_ramp": 0.0,
+        "flow_bias_shift": 3.0, "flow_bias_window": (8.0, 18.0),
+    },
 }
 
 
@@ -571,7 +577,9 @@ def consensus_study(
                                  "mission_aware": mission_aware,
                                  "landmark_outage": fault.get("landmark_outage"),
                                  "landmark_cluster": fault.get("landmark_cluster"),
-                                 "factorgraph_flow_outage": fault.get("factorgraph_flow_outage")})
+                                 "factorgraph_flow_outage": fault.get("factorgraph_flow_outage"),
+                                 "flow_bias_shift": float(fault.get("flow_bias_shift", 0.0)),
+                                 "flow_bias_window": fault.get("flow_bias_window")})
                 scenarios.append(s2)
             metrics_list = []
             outcomes = []
@@ -622,6 +630,9 @@ def consensus_main(argv=None) -> int:
                     help="comma-separated 'start-end' window applied to ALL faults \
                           (sparse/under-determined factor graph: no flow factors \
                           for the FG only; EKF flow aiding is unchanged), e.g. '10-35'")
+    ap.add_argument("--transient-window", type=str, default="",
+                    help="comma-separated 'start-end' overrides the transient \
+                          fault window (fully contained flow bias), e.g. '8-18'")
     ap.add_argument("--faults", type=str,
                     default="none,scale1.5,bias.1,bias.25",
                     help="comma-separated fault names from FAULT_PRESETS")
@@ -690,6 +701,18 @@ def consensus_main(argv=None) -> int:
             return 1
         for f in faults:
             f["factorgraph_flow_outage"] = fg_out
+
+    # Optional override of the transient fault window (fully contained bias).
+    if args.transient_window:
+        try:
+            s, e = args.transient_window.split("-")
+            tw = (float(s), float(e))
+        except Exception:
+            print("[cons] bad --transient-window (expected 'start-end')")
+            return 1
+        for f in faults:
+            if f.get("flow_bias_shift", 0.0) != 0.0:
+                f["flow_bias_window"] = tw
 
     rows = consensus_study(faults=faults, n_per_cell=args.n, duration=args.duration,
                            seed=args.seed, mission_aware=args.mission_aware,
