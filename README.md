@@ -135,43 +135,37 @@ sensor-fusion layer is designed to close.
 
 ## Roadmap (current thinking)
 
-The repo is at **Stage 22** of the longer research program. The next stages in
-order of value:
+The repo is at **Stage 23**. This is the start of the **Nexus-Predator
+next-generation autonomy platform** (new drone phase) built on top of the proven
+safety/consensus stack. The **AI Guardian core** is implemented and demonstrable;
+the remote/attack surface is intentionally defensive only (no weapons/targeting).
 
-1. **Persistence-gated flow rejection is a tradeoff, not a win (measured).**
-   We implemented the proposed gate (`--flow-reject-persist <s>`), and it is
-   kept **off by default (immediate rejection)** because it is not a strict
-   improvement: on the transient-hidden-in-sparse-FG grid it reduces the
-   landmark-only arm's crashes (2/6 → 1/6) but **worsens the adaptive arm**
-   (0 crash → 1/6), and on a persistent bias.25 it can *under-protect* the
-   landmark-only arm (delays rejection).  `adaptive_veto_trust` is unchanged and
-   remains the robust default mode
-   (`docs/research-brief-21.md`).
-2. **The right next design is recovery-aware decision-making** — a detector that
-   distinguishes "transient vs persistent", and only rejecting the source when
-   the consensus is *still* low AND the vehicle is heading out of bounds, with
-   optional re-enable after a demonstrated recovery.  That is its own experiment.
-3. **Then** physics/battery/per-sensor layers (motor/spin, prop, thermal,
-   ground-effect).
-2. **Mission-aware RTL is opt-in and honestly limited.**  A ramping corrupt
-   velocity source corrupts navigation before detection, so RTL is a guess
-   there.  The useful design-in pieces (early source rejection, GPS-only state
-   reset, ground-contact friction) apply to immediate land too; RTL becomes
-   attractive for a different fault class (e.g. battery/actuator degradation
-   with intact navigation).
-3. **Richer landmark geometry** — higher rate, landmark persistence and a
-   learned "trust this frame" model.
-5. **Physics fidelity v4** — motor/spin dynamics, propeller model, thermal,
-   ground effect.
-6. **Digital twin** — save a run as telemetry and provide replay/re-command.
-7. **Battery-aware mission decision** — use the power model to decide "return
-   now" vs "continue", and add a thermal budget.
-8. **Learnable components** — learned surrogate for the EKF motion model and a
-   policy/neural controller trained in this environment.
-9. **Multi-agent swarm** — extend to several vehicles with distributed
-   waypoint assignment.
-10. **Validation bridge** — port the same mission to PX4 SITL or JSBSim to
-   compare the lightweight model against a real EOM.
+1. **AI Guardian core (`src/airlab/guardian/`)** — a defensive autonomy brain
+   that detects *anything that threatens the aircraft* across five independent
+   channels (navigation spoof/jam, obstacle/collision, wind anomaly, cyber/
+   command anomaly, battery/energy) and responds with
+   `CRUISE_SAFE / EVADE / RECOVER_NAV / SILENT / ABORT`, plus a bounded
+   `cloaked_evasion` and `silent_rf` defensive capability.  `run_guardian.py`
+   demos healthy / intruder / spoof / jamming / jamming+obstacle all ending
+   crash-free (`docs/research-brief-22.md`).
+2. **Best Next Experiment: oracle risk world model + predictive re-planning** —
+   turn "detect + one-step dodge" into "detect + avoid the whole threat corridor"
+   (highest detection coverage 9 / response 8 in the lab rubric).
+3. **Then** the neuromorphic/edge energy path (SNN planner at ~800 GOp/s/W class)
+   to run it inside a 10 W envelope, then physics/battery/per-sensor layers.
+
+---
+
+### Previous roadmap (safety/consensus stages, completed)
+The safety/consensus line reached **Stage 22** and is documented in
+`docs/research-brief-02.md` … `docs/research-brief-21.md`.  Highlights:
+adaptive consensus default (`brief-10`), escalation line 0.65 (`brief-11`),
+availability weighting (`brief-12`), asymmetric veto + learned frame trust
+(`brief-13`/`brief-17`), degenerate-parallax discrimination (`brief-16`),
+sparse factor-graph outage (`brief-18`), n=30 statistical confirmation of the
+detector arms (`brief-19`), transient-fault false-rejection penalty
+(`brief-20`), and the persistence-gate tradeoff (`brief-21`).  The default
+remains immediate rejection with `adaptive_veto_trust` as the robust mode.
 
 ---
 
