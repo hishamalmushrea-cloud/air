@@ -20,6 +20,8 @@ from .threats import GuardianState, ThreatEngine, ThreatReport, Obstacle
 from .avoidance import EvasionPlanner, EvasionDecision
 from .brain import GuardianBrain, BrainDecision
 from .drone_nexus import NexusAirV2, NexusSpec
+from .risk import RiskWorldModel, RiskField
+from .replan import PredictiveRePlanner, ReplanResult
 
 __all__ = [
     "GuardianState",
@@ -32,4 +34,8 @@ __all__ = [
     "BrainDecision",
     "NexusAirV2",
     "NexusSpec",
+    "RiskWorldModel",
+    "RiskField",
+    "PredictiveRePlanner",
+    "ReplanResult",
 ]

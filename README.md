@@ -148,11 +148,16 @@ the remote/attack surface is intentionally defensive only (no weapons/targeting)
    `cloaked_evasion` and `silent_rf` defensive capability.  `run_guardian.py`
    demos healthy / intruder / spoof / jamming / jamming+obstacle all ending
    crash-free (`docs/research-brief-22.md`).
-2. **Best Next Experiment: oracle risk world model + predictive re-planning** —
-   turn "detect + one-step dodge" into "detect + avoid the whole threat corridor"
-   (highest detection coverage 9 / response 8 in the lab rubric).
-3. **Then** the neuromorphic/edge energy path (SNN planner at ~800 GOp/s/W class)
-   to run it inside a 10 W envelope, then physics/battery/per-sensor layers.
+2. **Oracle risk world model + predictive re-planning (implemented).**
+   `RiskWorldModel` builds a transparent 3-D risk field (obstacle projections,
+   jamming/spoof corridors, energy floor) over the remaining mission;
+   `PredictiveRePlanner` (beam search over bounded waypoint offsets) re-plans the
+   remaining route.  Demo: baseline risk 0.525 → 0.180 (66 % reduction),
+   obstacle clearance 3.50 m, extra distance 5.7 %, energy feasible.
+   `docs/research-brief-23.md`.
+3. **Next** learn a risk prior from flight/jam telemetry (analytic surrogate →
+   learned oracle), then port the re-planned route into the real mission
+   controller in `simulator.py`, then the neuromorphic/edge energy path.
 
 ---
 

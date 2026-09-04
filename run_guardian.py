@@ -22,7 +22,6 @@ import numpy as np
 
 from airlab.guardian import (GuardianState, ThreatEngine, EvasionPlanner,
                              GuardianBrain, NexusAirV2, Obstacle)
-
 _DESIRE = np.array([1.0, 0.0, 0.0])
 
 
@@ -71,6 +70,22 @@ def _jam_mod(k, st: GuardianState) -> GuardianState:
     return st
 
 
+def _row_replan(name: str, res) -> dict:
+    return {
+        "scenario": name,
+        "bas_risk": round(res.bas_risk, 3),
+        "repl_risk": round(res.repl_risk, 3),
+        "risk_reduction": round(res.risk_reduction, 3),
+        "bas_length_m": round(res.bas_length, 2),
+        "repl_length_m": round(res.repl_length, 2),
+        "extra_distance_frac": round(res.extra_distance_frac, 3),
+        "energy_required": round(res.energy_heavy_required, 3),
+        "feasible": int(res.feasible),
+        "min_clearance_m": round(res.min_clearance_m, 2),
+        "reasons": str(res.reasons),
+    }
+
+
 def _row(name: str, m) -> dict:
     return {
         "scenario": name, "mode_counts": str(m.mode_histogram),
@@ -110,6 +125,24 @@ def main() -> int:
               f"undeclared={sorted(m.undeclared_used)}")
     _write("out/guardian/summary.csv", rows)
     print(f"[guardian] wrote out/guardian/summary.csv")
+
+    # Oracle risk world model + predictive re-planning demonstration.
+    st = _initial()
+    wp0 = np.array([18.0, 0.0, -5.0])
+    wp1 = np.array([30.0, 4.0, -6.0])
+    remaining = [wp0, wp1]
+    obs_a = Obstacle(pos=np.array([12.0, 0.0, -5.0]), vel=np.array([0.0, 0.0, 0.0]),
+                     radius=1.5)
+    jam_center = np.array([13.0, 0.0, -5.0])
+    res = air.replan_route(st, remaining, obstacles=[obs_a],
+                           jamming_centers=[jam_center])
+    repl_rows = [_row_replan("oracle_replan", res)]
+    _write("out/guardian/replan.csv", repl_rows)
+    print(f"[guardian][replan] bas_risk={res.bas_risk:.3f} -> repl_risk={res.repl_risk:.3f} "
+          f"(reduction={res.risk_reduction:.3f}, extra_frac={res.extra_distance_frac:.3f}, "
+          f"clearance={res.min_clearance_m:.2f}m, energy_req={res.energy_heavy_required:.3f}, "
+          f"feasible={int(res.feasible)})")
+    print(f"[guardian] wrote out/guardian/replan.csv")
     return 0
 
 

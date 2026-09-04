@@ -21,6 +21,8 @@ import numpy as np
 
 from .threats import GuardianState, Obstacle
 from .brain import GuardianBrain, BrainDecision, EVADE, ABORT, SILENT, RECOVER_NAV
+from .risk import RiskWorldModel
+from .replan import PredictiveRePlanner, ReplanResult
 
 
 @dataclass
@@ -32,6 +34,8 @@ class NexusSpec:
     onnx_gops_per_w: float = 847.0       # neuromorphic efficiency (research target)
     max_speed_ms: float = 14.0
     endurance_min: float = 38.0
+    battery_capacity_wh: float = 71.0
+    energy_reserve_frac: float = 0.15
     sensors: list[str] = field(default_factory=lambda: [
         "IMU", "baro", "mag", "GNSS", "flow",
         "stereo IR", "micro-LiDAR", "RF ambient",
@@ -70,9 +74,26 @@ class NexusAirV2:
     ``simulator.py``).
     """
 
-    def __init__(self, brain: GuardianBrain | None = None) -> None:
+    def __init__(self, brain: GuardianBrain | None = None,
+                 replanner: PredictiveRePlanner | None = None) -> None:
         self.brain = brain or GuardianBrain()
         self.spec = NexusSpec()
+        self.replanner = replanner or PredictiveRePlanner(
+            model=RiskWorldModel(),
+            hover_power_w=self.spec.hover_power_w,
+            battery_capacity_wh=self.spec.battery_capacity_wh,
+            energy_reserve_frac=self.spec.energy_reserve_frac,
+        )
+
+    def replan_route(self, state: GuardianState, remaining: list[np.ndarray],
+                     obstacles=None, jamming_centers=None) -> ReplanResult:
+        """Predictive re-planning of the remaining mission (threat-corridor
+        avoidance).  Uses the platform's energy/battery envelope."""
+        return self.replanner.plan(
+            start=state.pos, remaining=[np.asarray(w, dtype=float) for w in remaining],
+            battery_frac=state.battery_frac, obstacles=obstacles,
+            jamming_centers=jamming_centers,
+        )
 
     def run_step(self, state: GuardianState, desire: np.ndarray,
                  obstacle: Obstacle | None = None) -> tuple[BrainDecision, GuardianState]:

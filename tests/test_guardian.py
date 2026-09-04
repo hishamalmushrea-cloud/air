@@ -95,5 +95,50 @@ class TestBrain(unittest.TestCase):
         self.assertIn("predictive_sense_avoid", dec.declared_used)
 
 
+class TestRiskAndReplan(unittest.TestCase):
+    def test_risk_field_penalises_obstacle_and_route_is_replanned(self):
+        from airlab.guardian import (RiskWorldModel, PredictiveRePlanner, Obstacle)
+
+        model = RiskWorldModel(cell=1.0, obstacle_sigma=1.5, sampling_step=0.5)
+        start = np.array([0.0, 0.0, -5.0])
+        remaining = [np.array([12.0, 0.0, -5.0])]
+        obs = Obstacle(pos=np.array([6.0, 0.0, -5.0]),
+                       vel=np.array([0.0, 0.0, 0.0]), radius=1.0)
+        pl = PredictiveRePlanner(model=model, beam=4, cruise_speed=3.0,
+                                 battery_capacity_wh=71.0)
+        res = pl.plan(start, remaining, battery_frac=1.0, obstacles=[obs])
+        # A same-line route (baseline) runs straight through the obstacle.
+        self.assertGreater(res.bas_risk, res.repl_risk)
+        self.assertGreater(res.risk_reduction, 0.0)
+        # The replanned route should clear the obstacle farther than 2 m.
+        self.assertGreaterEqual(res.min_clearance_m, 0.5)
+
+    def test_replan_respects_energy_feasibility(self):
+        from airlab.guardian import PredictiveRePlanner
+
+        pl = PredictiveRePlanner(battery_capacity_wh=1.0, cruise_speed=3.0)
+        start = np.array([0.0, 0.0, -5.0])
+        remaining = [np.array([120.0, 0.0, -5.0])]
+        # With a tiny battery, the re-planned route must be flagged infeasible.
+        res = pl.plan(start, remaining, battery_frac=0.05)
+        self.assertFalse(res.feasible)
+
+    def test_replan_clears_threat_corridor_with_small_extra_distance(self):
+        from airlab.guardian import (RiskWorldModel, PredictiveRePlanner, Obstacle)
+
+        model = RiskWorldModel(cell=1.0, obstacle_sigma=2.0, jamming_sigma=4.0)
+        start = np.array([0.0, 0.0, -5.0])
+        remaining = [np.array([18.0, 0.0, -5.0]), np.array([30.0, 4.0, -6.0])]
+        obs = Obstacle(pos=np.array([12.0, 0.0, -5.0]),
+                       vel=np.array([0.0, 0.0, 0.0]), radius=1.5)
+        pl = PredictiveRePlanner(model=model)
+        res = pl.plan(start, remaining, battery_frac=1.0, obstacles=[obs],
+                      jamming_centers=[np.array([13.0, 0.0, -5.0])])
+        self.assertGreater(res.risk_reduction, 0.2)
+        self.assertGreaterEqual(res.min_clearance_m, 2.0)
+        self.assertIs(res.feasible, True)
+        self.assertLess(res.extra_distance_frac, 0.2)
+
+
 if __name__ == "__main__":
     unittest.main()
