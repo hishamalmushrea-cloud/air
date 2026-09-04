@@ -55,12 +55,22 @@ class GuardianBrain:
         self.threat = threat_engine or ThreatEngine()
         self.evasion = evasion or EvasionPlanner()
 
-    def decide(self, state: GuardianState, desire: np.ndarray) -> BrainDecision:
-        """Produce one defensive decision for the current state."""
+    def decide(self, state: GuardianState, desire: np.ndarray,
+               health_score: float | None = None) -> BrainDecision:
+        """Produce one defensive decision for the current state.
+
+        ``health_score`` is an optional aggregate maintenance-health in [0,1]
+        (from :class:`airlab.guardian.health.HealthPrognosis`).  A critically
+        low health is treated as an abort condition (predictive maintenance,
+        master prompt §35) with priority below an immediate battery/wind
+        emergency but above a soft collision risk.
+        """
         reports = self.threat.evaluate(state)
         active: dict[str, float] = {}
         for r in reports:
             _score(active, r)
+
+        health_abort = health_score is not None and health_score < 0.45
 
         ev = self.evasion.plan(state, desire)
         mode = CRUISE_SAFE
@@ -76,7 +86,13 @@ class GuardianBrain:
         battery = active.get("battery", 0.0)
 
         # Priority order: safety-critical first, then degraded-nav, then cloak.
-        if battery >= 0.55 or wind >= 0.80:
+        if health_abort and battery < 0.55 and wind < 0.80:
+            mode = ABORT
+            reason = "predictive_maintenance_health_low"
+            decl.append("predictive_maintenance_health")
+            undecl.append("maintenance_abort")
+            threat_rep = None
+        elif battery >= 0.55 or wind >= 0.80:
             mode = ABORT
             reason = "energy/wind_envelope_unsafe"
             decl.append("energy_envelope_guard")

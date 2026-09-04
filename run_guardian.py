@@ -21,7 +21,8 @@ import sys
 import numpy as np
 
 from airlab.guardian import (GuardianState, ThreatEngine, EvasionPlanner,
-                             GuardianBrain, NexusAirV2, Obstacle)
+                             GuardianBrain, NexusAirV2, Obstacle,
+                             SubsystemHealth, HealthPrognosis, simulated_features)
 _DESIRE = np.array([1.0, 0.0, 0.0])
 
 
@@ -143,6 +144,36 @@ def main() -> int:
           f"clearance={res.min_clearance_m:.2f}m, energy_req={res.energy_heavy_required:.3f}, "
           f"feasible={int(res.feasible)})")
     print(f"[guardian] wrote out/guardian/replan.csv")
+
+    # Predictive maintenance (master prompt §35): subsystem health scores.
+    rng = np.random.default_rng(7)
+    health = SubsystemHealth(warmup_samples=20)
+    prognosis = HealthPrognosis()
+    # healthy for 60 steps, then force every subsystem to degrade.
+    rows_health = []
+    for k in range(80):
+        feats = simulated_features(rng, k,
+                                   battery_bad=(k >= 60),
+                                   motor_bad=(k >= 60),
+                                   thermal_bad=(k >= 60),
+                                   vib_bad=(k >= 60))
+        health.update(*feats)
+        agg = prognosis.aggregate(health.scores())
+        if k in (19, 59, 69, 79):
+            for hs in health.scores():
+                rows_health.append({"step": k, "subsystem": hs.subsystem,
+                                    "score": round(hs.score, 3),
+                                    "status": hs.status, "evidence": hs.evidence})
+    _write("out/guardian/health.csv", rows_health)
+    # final aggregate + whether guardian would abort
+    final_scores = health.scores()
+    final_agg = prognosis.aggregate(final_scores)
+    final_dec = air.brain.decide(_initial(), np.array([1.0, 0.0, 0.0]),
+                                 health_score=final_agg)
+    print(f"[guardian][health] final_aggregate={final_agg:.3f} "
+          f"trend={prognosis.trend:.4f}/s critical={[h.subsystem for h in final_scores if h.degraded]} "
+          f"guardian_mode={final_dec.mode}")
+    print(f"[guardian] wrote out/guardian/health.csv")
     return 0
 
 

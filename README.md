@@ -155,9 +155,17 @@ the remote/attack surface is intentionally defensive only (no weapons/targeting)
    remaining route.  Demo: baseline risk 0.525 → 0.180 (66 % reduction),
    obstacle clearance 3.50 m, extra distance 5.7 %, energy feasible.
    `docs/research-brief-23.md`.
-3. **Next** learn a risk prior from flight/jam telemetry (analytic surrogate →
-   learned oracle), then port the re-planned route into the real mission
-   controller in `simulator.py`, then the neuromorphic/edge energy path.
+3. **Predictive maintenance / subsystem health score (implemented).**
+   `SubsystemHealth` learns a baseline then emits per-subsystem health scores
+   (battery, motor, thermal, vibration, sensor_gps, sensor_flow); `HealthPrognosis`
+   aggregates by weakest-link; the guardian now **ABORTs** on a critical
+   maintenance state (`predictive_maintenance_health`).  Demo: healthy stays out
+   of critical, degraded all-critical → guardian ABORT
+   (`docs/research-brief-24.md`).
+4. **Next** consume real simulator telemetry in the health engine (currently
+   synthetic features), then a thermal model + GCS health dashboard, then a
+   learned risk prior from flight/jam telemetry, then port the re-planned route
+   into the real mission controller, then the neuromorphic/edge energy path.
 
 ---
 

@@ -95,6 +95,47 @@ class TestBrain(unittest.TestCase):
         self.assertIn("predictive_sense_avoid", dec.declared_used)
 
 
+class TestHealth(unittest.TestCase):
+    def test_healthy_subsystems_stay_healthy(self):
+        from airlab.guardian import (SubsystemHealth, HealthPrognosis,
+                                     simulated_features)
+        rng = np.random.default_rng(3)
+        health = SubsystemHealth(warmup_samples=20)
+        prog = HealthPrognosis()
+        for k in range(60):
+            health.update(*simulated_features(rng, k))
+            agg = prog.aggregate(health.scores())
+            if k >= 20:
+                self.assertGreaterEqual(agg, 0.5)  # healthy should not be critical
+
+    def test_degraded_subsystems_trigger_critical_heap(self):
+        from airlab.guardian import (SubsystemHealth, HealthPrognosis,
+                                     simulated_features)
+        rng = np.random.default_rng(3)
+        health = SubsystemHealth(warmup_samples=20)
+        prog = HealthPrognosis()
+        for k in range(80):
+            feats = simulated_features(rng, k, battery_bad=(k >= 55),
+                                       motor_bad=(k >= 55),
+                                       thermal_bad=(k >= 55),
+                                       vib_bad=(k >= 55))
+            health.update(*feats)
+            agg = prog.aggregate(health.scores())
+            if k >= 70:
+                self.assertLess(agg, 0.5)      # poor health -> ABORT threshold
+                self.assertLessEqual(len([h for h in health.scores()
+                                          if h.subsystem.startswith("sensor")]),
+                                     2)  # sensors stay separate
+
+    def test_guardian_aborts_on_low_aggregate_health(self):
+        from airlab.guardian import GuardianBrain
+        from airlab.guardian.brain import ABORT
+        brain = GuardianBrain()
+        dec = brain.decide(GState(), np.zeros(3), health_score=0.21)
+        self.assertEqual(dec.mode, ABORT)
+        self.assertIn("predictive_maintenance_health", dec.declared_used)
+
+
 class TestRiskAndReplan(unittest.TestCase):
     def test_risk_field_penalises_obstacle_and_route_is_replanned(self):
         from airlab.guardian import (RiskWorldModel, PredictiveRePlanner, Obstacle)
