@@ -22,6 +22,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from .risk_prior import RiskPriorModel
+
 
 @dataclass
 class RiskField:
@@ -71,7 +73,9 @@ class RiskWorldModel:
     def __init__(self, cell: float = 1.0, obstacle_amp: float = 1.0,
                  obstacle_sigma: float = 2.0, jamming_amp: float = 0.7,
                  jamming_sigma: float = 4.0, horizon_s: float = 3.0,
-                 sampling_step: float = 0.5, length_penalty: float = 0.02) -> None:
+                 sampling_step: float = 0.5, length_penalty: float = 0.02,
+                 prior: RiskPriorModel | None = None,
+                 learned_alpha: float = 1.0) -> None:
         self.cell = cell
         self.obstacle_amp = obstacle_amp
         self.obstacle_sigma = obstacle_sigma
@@ -80,6 +84,11 @@ class RiskWorldModel:
         self.horizon_s = horizon_s
         self.sampling_step = sampling_step
         self.length_penalty = length_penalty
+        # Learned risk prior (priority #3): when fitted, the severity of each
+        # grid cell is calibrated from telemetry (kernel regression) while the
+        # corridor shape remains the analytic, inspectable field.
+        self.prior = prior
+        self.learned_alpha = float(learned_alpha)
 
     def build(self, bounds: tuple[float, float, float, float, float, float],
               obstacles: list, jamming_centers: list | None = None) -> RiskField:
@@ -111,8 +120,54 @@ class RiskWorldModel:
             self._add_bump(field, origin, np.asarray(c, dtype=float),
                            self.jamming_amp, self.jamming_sigma)
 
+        # Learned risk prior: re-calibrate the *severity* of each cell from
+        # telemetry.  Computes per-cell features (distance to nearest
+        # projected obstacle, jamming proximity) and replaces the analytic
+        # severity with the learned one where the prior is fitted.
+        if self.prior is not None and self.prior.fitted:
+            self._apply_learned_prior(field, origin, obstacles or [],
+                                      jamming_centers or [])
+
         return RiskField(origin=origin, cell=self.cell, shape=(nx, ny, nz),
                          risk=field)
+
+    def _projected(self, obstacles, steps: int) -> list[np.ndarray]:
+        pts: list[np.ndarray] = []
+        inner = self.horizon_s
+        for s_i in range(steps + 1):
+            t = inner * s_i / max(steps, 1)
+            for o in obstacles:
+                p = np.asarray(o.pos, dtype=float)
+                if hasattr(o, "vel"):
+                    p = p + np.asarray(o.vel, dtype=float) * t
+                pts.append(p)
+        return pts
+
+    def _apply_learned_prior(self, field: np.ndarray, origin: np.ndarray,
+                             obstacles, jamming_centers) -> None:
+        nx, ny, nz = field.shape
+        steps = max(1, int(round(self.horizon_s /
+                                 max(self.horizon_s / 6.0, 0.25))))
+        obs_pts = self._projected(obstacles, steps)
+        jam_pts = [np.asarray(c, dtype=float) for c in jamming_centers]
+        ii, jj, kk = np.meshgrid(np.arange(nx), np.arange(ny), np.arange(nz),
+                                 indexing="ij")
+        centers = origin + self.cell * np.stack(
+            [ii.reshape(-1), jj.reshape(-1), kk.reshape(-1)], axis=1)
+        dist = np.full(centers.shape[0], 12.0)
+        if obs_pts:
+            obs = np.asarray(obs_pts, dtype=float)
+            d = np.linalg.norm(centers[:, None, :] - obs[None, :, :], axis=2)
+            dist = d.min(axis=1)
+        jam = np.zeros(centers.shape[0], dtype=float)
+        if jam_pts:
+            jam_arr = np.asarray(jam_pts, dtype=float)
+            dj = np.linalg.norm(centers[:, None, :] - jam_arr[None, :, :],
+                                axis=2)
+            jam = np.exp(-0.5 * (dj / self.jamming_sigma) ** 2).max(axis=1)
+        learned = self.prior.predict(dist, jam)
+        lf = np.clip(self.learned_alpha * learned, 0.0, 1.0).reshape(nx, ny, nz)
+        field[:] = np.maximum(field, lf)
 
     def _add_bump(self, field: np.ndarray, origin: np.ndarray, p: np.ndarray,
                   amp: float, sigma: float) -> None:

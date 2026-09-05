@@ -177,8 +177,16 @@ the remote/attack surface is intentionally defensive only (no weapons/targeting)
    degradation* (`motor_degrade_at`).  Demo: same aircraft healthy for 7 s, then
    70 % thrust efficiency — motor health 0.87 ok → 0.33 critical, aggregate
    0.767 → 0.325 (`docs/research-brief-26.md`).
-6. **Next (priority #3)** learned risk prior from recorded flight/jam telemetry,
-   then part-level low-watt thermal model + data pipeline, then the
+6. **Learned risk prior (implemented).**
+   `RiskPriorModel` (Nadaraya-Watson kernel regression) fits a transparent risk
+   map from labelled flight/jam telemetry; `RiskWorldModel` optionally blends
+   the learned severity on top of the analytic corridor.  Demo:
+   learned at obstacle 1.000, off-axis 0.220; replan with learned prior
+   reduces risk 0.835 → 0.053, clearance 6.16 m
+   (`docs/research-brief-27.md`).  Reference telemetry is **simulated**
+   (honest limit; model is data-agnostic).
+7. **Next (priority #4/#5)** part-level low-watt thermal model, then a real
+   data pipeline so the learned prior uses recorded flight telemetry, then the
    neuromorphic/edge energy and perception path.
 
 ---

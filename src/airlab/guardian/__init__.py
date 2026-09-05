@@ -21,6 +21,7 @@ from .avoidance import EvasionPlanner, EvasionDecision
 from .brain import GuardianBrain, BrainDecision
 from .drone_nexus import NexusAirV2, NexusSpec
 from .risk import RiskWorldModel, RiskField
+from .risk_prior import RiskPriorModel, RiskSample, simulate_telemetry
 from .replan import PredictiveRePlanner, ReplanResult
 from .health import HealthScore, SubsystemHealth, HealthPrognosis, simulated_features
 from .sim_bridge import MissionReplanBridge, BridgeConfig, BridgeHistory
@@ -39,6 +40,9 @@ __all__ = [
     "NexusSpec",
     "RiskWorldModel",
     "RiskField",
+    "RiskPriorModel",
+    "RiskSample",
+    "simulate_telemetry",
     "PredictiveRePlanner",
     "ReplanResult",
     "HealthScore",

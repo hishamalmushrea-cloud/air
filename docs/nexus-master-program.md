@@ -83,10 +83,10 @@ sensors → fusion EKF → controller → dynamics
 | Critical | Port predictive re-planning into the real mission controller (`simulator.py`) | **✅ done (brief-25)** |
 | High | **Predictive maintenance / subsystem Health Score** | **✅ done (brief-24)** |
 | High | Feed health engine real simulator telemetry | **✅ done (brief-26)** |
-| High | Learned risk prior from flight/jam telemetry | **NEXT → priority #3** |
+| High | Learned risk prior from flight/jam telemetry | **✅ done (brief-27)** |
 | High | GCS telemetry + health dashboard | near future |
-| Medium | Thermal model (CPU/ESC/motor/battery) | NOW |
-| Medium | Data pipeline (edge → storage → analytics) | NOW |
+| Medium | Thermal model (CPU/ESC/motor/battery) | **NEXT → priority #4** |
+| Medium | Data pipeline (edge → storage → analytics) | **NEXT → priority #5** |
 | Medium | Motor/ESC/prop system model (thrust/power/temp) | RESEARCH |
 | Experimental | Neuromorphic SNN planner @ ~847 GOp/s/W class | LONG TERM |
 | Experimental | Swarm split-risk graph | LONG TERM |
@@ -99,7 +99,7 @@ sensors → fusion EKF → controller → dynamics
 - #4 Thermal model **36**
 - #5 Neuromorphic SNN / NeuViT perception **33** (highest innovation, long-term).
 
-## 7. Generation log (G0 → G5)
+## 7. Generation log (G0 → G6)
 - **G0**: baseline stack (dynamics/EKF/controller/safety FSM).
 - **G1**: independent landmark + factor-graph detectors; bias.25 crash → 0.
 - **G2**: learned frame trust + adaptive_veto_trust; degenerate-parallax &
@@ -109,8 +109,9 @@ sensors → fusion EKF → controller → dynamics
   the real mission controller (`MissionReplanBridge` in `simulator.py`).
 - **G5**: health engine consumes real fused simulator telemetry
   (`TelemetryHealthBridge`, physical mid-flight motor degradation).
-- **G6 (next)**: learned risk prior from recorded flight/jam telemetry; then
-  part-level low-watt thermal model.
+- **G6**: learned risk prior from simulated flight/jam telemetry
+  (`RiskPriorModel` kernel regression; `RiskWorldModel` learned severity).
+- **G7 (next)**: part-level low-watt thermal model; then real data pipeline.
 
 ## 8. Engineering Decision Log (current entries)
 

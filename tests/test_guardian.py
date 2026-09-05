@@ -239,6 +239,51 @@ class TestSimBridge(unittest.TestCase):
         self.assertEqual(len(lands), 0)
 
 
+class TestRiskPrior(unittest.TestCase):
+    def test_prior_learns_near_obstacle_is_riskier(self):
+        from airlab.guardian import RiskPriorModel, simulate_telemetry
+        prior = RiskPriorModel().fit(simulate_telemetry(n=800))
+        self.assertTrue(prior.fitted)
+        near = float(prior.predict(np.array([0.5]), np.array([0.0]))[0])
+        far = float(prior.predict(np.array([10.0]), np.array([0.0]))[0])
+        self.assertGreater(near, far)
+        j = float(prior.predict(np.array([8.0]), np.array([0.9]))[0])
+        j0 = float(prior.predict(np.array([8.0]), np.array([0.0]))[0])
+        self.assertGreater(j, j0)
+
+    def test_risk_world_model_uses_learned_prior(self):
+        from airlab.guardian import (RiskWorldModel, RiskPriorModel,
+                                     simulate_telemetry, Obstacle)
+        prior = RiskPriorModel().fit(simulate_telemetry(n=800))
+        model = RiskWorldModel(prior=prior, learned_alpha=1.0)
+        obs = Obstacle(pos=np.array([5.0, 0.0, -2.0]),
+                       vel=np.array([0.0, 0.0, 0.0]))
+        field = model.build((0, 10, -5, 5, -6, 0), [obs], [[5.0, 0.0, -2.0]])
+        near = field.sample(np.array([5.0, 0.0, -2.0]))
+        far = field.sample(np.array([5.0, 5.0, -2.0]))
+        self.assertGreater(near, far)
+        # a learned prior must be strictly more informative than the analytic
+        # field on the obstacle centre (telemetry says "very dangerous")
+        self.assertGreater(near, 0.5)
+
+    def test_replanner_with_learned_prior_beats_baseline(self):
+        from airlab.guardian import (RiskWorldModel, RiskPriorModel,
+                                     PredictiveRePlanner, simulate_telemetry,
+                                     Obstacle)
+        prior = RiskPriorModel().fit(simulate_telemetry(n=800))
+        planner = PredictiveRePlanner(
+            model=RiskWorldModel(prior=prior, learned_alpha=1.0))
+        start = np.array([0.0, 0.0, -2.0])
+        remaining = [np.array([6.0, 0.0, -2.0]),
+                     np.array([12.0, 0.0, -2.0])]
+        obs = Obstacle(pos=np.array([6.0, 0.0, -2.0]),
+                       vel=np.array([0.0, 0.0, 0.0]))
+        res = planner.plan(start, remaining, battery_frac=1.0, obstacles=[obs])
+        self.assertTrue(res.feasible)
+        self.assertGreater(res.risk_reduction, 0.0)
+        self.assertGreaterEqual(res.min_clearance_m, 2.0)
+
+
 class TestRiskAndReplan(unittest.TestCase):
     def test_risk_field_penalises_obstacle_and_route_is_replanned(self):
         from airlab.guardian import (RiskWorldModel, PredictiveRePlanner, Obstacle)

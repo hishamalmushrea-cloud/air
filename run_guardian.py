@@ -145,6 +145,53 @@ def main() -> int:
           f"feasible={int(res.feasible)})")
     print(f"[guardian] wrote out/guardian/replan.csv")
 
+    # Learned risk prior (priority #3): fit a transparent kernel-regression
+    # risk map on *labelled telemetry*, then show it calibrates the severity of
+    # the same obstacle/jam corridor (C -> B: analytic surrogate -> learned).
+    from airlab.guardian import (RiskPriorModel, RiskWorldModel,
+                                 PredictiveRePlanner, simulate_telemetry,
+                                 Obstacle as PriorObstacle)
+    prior = RiskPriorModel().fit(simulate_telemetry(n=1200))
+    learned_model = RiskWorldModel(prior=prior, learned_alpha=1.0)
+    prior_obs = PriorObstacle(pos=np.array([12.0, 0.0, -5.0]),
+                              vel=np.array([0.0, 0.0, 0.0]))
+    prior_center = np.array([13.0, 0.0, -5.0])
+    prior_field = learned_model.build((0, 24, -8, 8, -8, -2),
+                                      [prior_obs], [prior_center])
+    at_obs = prior_field.sample(np.array([12.0, 0.0, -5.0]))
+    side = prior_field.sample(np.array([12.0, 6.0, -5.0]))
+    base_model = RiskWorldModel()
+    base_field = base_model.build((0, 24, -8, 8, -8, -2),
+                                  [prior_obs], [prior_center])
+    base_at = base_field.sample(np.array([12.0, 0.0, -5.0]))
+    learned_res = PredictiveRePlanner(model=learned_model).plan(
+        np.array([0.0, 0.0, -5.0]),
+        [np.array([12.0, 0.0, -5.0]), np.array([24.0, 0.0, -5.0])],
+        battery_frac=1.0, obstacles=[prior_obs],
+        jamming_centers=[prior_center])
+    prior_rows = [{
+        "field": "learned_at_obstacle", "risk": round(float(at_obs), 4),
+        "note": f"prior={prior.summary().get('n', 0)} samples",
+    }, {
+        "field": "learned_side", "risk": round(float(side), 4),
+    }, {
+        "field": "analytic_at_obstacle", "risk": round(float(base_at), 4),
+    }, {
+        "field": "replan_risk", "risk": round(float(learned_res.repl_risk), 4),
+        "note": f"reduction={learned_res.risk_reduction:.3f} "
+                f"clearance={learned_res.min_clearance_m:.2f}m "
+                f"extra={learned_res.extra_distance_frac:.2f}",
+    }]
+    _write("out/guardian/risk_prior.csv", prior_rows)
+    print(f"[guardian][risk_prior] prior={prior.summary()}")
+    print(f"[guardian][risk_prior] learned at obstacle={at_obs:.3f} "
+          f"(analytic={base_at:.3f}), side={side:.3f}")
+    print(f"[guardian][risk_prior] replan learned risk "
+          f"{learned_res.bas_risk:.3f}->{learned_res.repl_risk:.3f} "
+          f"reduction={learned_res.risk_reduction:.3f} "
+          f"clearance={learned_res.min_clearance_m:.2f}m")
+    print(f"[guardian] wrote out/guardian/risk_prior.csv")
+
     # Predictive maintenance (master prompt §35): subsystem health scores.
     rng = np.random.default_rng(7)
     health = SubsystemHealth(warmup_samples=20)
