@@ -50,6 +50,7 @@ class Quadrotor:
         init_rpy: np.ndarray | None = None,
         ground: float = 0.0,             # NED z of ground (down positive)
         ground_friction: float = 5.0,    # 1/s horizontal damping on contact
+        motor_efficiency: float = 1.0,   # 1.0 healthy; <1 degrades delivered thrust
     ) -> None:
         self.mass = mass
         self.inertia = np.diag(inertia if inertia is not None else [0.012, 0.012, 0.022])
@@ -59,6 +60,7 @@ class Quadrotor:
         self.max_roll = max_roll
         self.max_pitch = max_pitch
         self.max_thrust = max_thrust
+        self.motor_efficiency = float(motor_efficiency)
         self.ground = ground
         self.ground_friction = ground_friction
 
@@ -108,7 +110,7 @@ class Quadrotor:
         wind = _vec_len3(wind_ned if wind_ned is not None else [0.0, 0.0, 0.0])
         dist = _vec_len3(add_disturbance if add_disturbance is not None else [0.0, 0.0, 0.0])
 
-        thrust = float(np.clip(control[0], 0.0, self.max_thrust))
+        thrust = float(np.clip(control[0], 0.0, self.max_thrust)) * self.motor_efficiency
         rate_cmds = np.asarray(control[1:4], dtype=float).reshape(3)
 
         # ---- inner-loop rate response (1st order, bounded) ----

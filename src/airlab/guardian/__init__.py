@@ -24,6 +24,7 @@ from .risk import RiskWorldModel, RiskField
 from .replan import PredictiveRePlanner, ReplanResult
 from .health import HealthScore, SubsystemHealth, HealthPrognosis, simulated_features
 from .sim_bridge import MissionReplanBridge, BridgeConfig, BridgeHistory
+from .telemetry_health import TelemetryHealthBridge, ThermalState
 
 __all__ = [
     "GuardianState",
@@ -47,4 +48,6 @@ __all__ = [
     "MissionReplanBridge",
     "BridgeConfig",
     "BridgeHistory",
+    "TelemetryHealthBridge",
+    "ThermalState",
 ]

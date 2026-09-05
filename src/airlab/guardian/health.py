@@ -88,10 +88,12 @@ class SubsystemHealth:
 
         n = len(self._bat_volt)
         out: list[HealthScore] = []
-        # Battery: drop below healthy reference by more than 25% is a warning.
+        # Battery: the reference is the healthy discharge level.  A normal
+        # few-percent mission discharge must not read "warn"; only a drop of
+        # ~10 % (deep discharge / sag / aging) starts to matter.
         last = float(self._bat_volt[-1])
         drop = max(0.0, self._bat_ref - last)
-        bat_score = float(np.clip(1.0 - _sigmoid((drop - 0.05) / 0.06), 0.0, 1.0))
+        bat_score = float(np.clip(1.0 - _sigmoid((drop - 0.10) / 0.08), 0.0, 1.0))
         t = self._trend(self._bat_volt, 0.25)
         out.append(HealthScore("battery", bat_score, trend=t,
                                status=_status(bat_score),

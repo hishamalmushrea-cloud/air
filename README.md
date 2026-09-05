@@ -135,7 +135,7 @@ sensor-fusion layer is designed to close.
 
 ## Roadmap (current thinking)
 
-The repo is at **Stage 23**. This is the start of the **Nexus-Predator
+The repo is at **Stage 25**. This is the start of the **Nexus-Predator
 next-generation autonomy platform** (new drone phase) built on top of the proven
 safety/consensus stack. The **AI Guardian core** is implemented and demonstrable;
 the remote/attack surface is intentionally defensive only (no weapons/targeting).
@@ -169,9 +169,17 @@ the remote/attack surface is intentionally defensive only (no weapons/targeting)
    feasible) and never fights the safety FSM.  Demo: straight mission through a
    1.5 m obstacle → route swaps mid-flight, risk 0.459→0.001, clearance 5.16 m,
    +20 % distance, 0 landings (`docs/research-brief-25.md`).
-5. **Next (priority #2)** feed the health engine real simulator telemetry, then
-   the low-watt thermal model + learned risk prior from flight/jam telemetry,
-   then the neuromorphic/edge energy and perception path.
+5. **Health engine on real fused telemetry (implemented).**
+   `TelemetryHealthBridge` mines the live `Simulator` (actual battery/energy,
+   throttle→lift motor efficiency observable, modelled lumped thermal state,
+   acceleration jitter, GNSS + landmark/factor-graph disagreement) into
+   `SubsystemHealth`.  The plant now supports a *physical mid-flight motor
+   degradation* (`motor_degrade_at`).  Demo: same aircraft healthy for 7 s, then
+   70 % thrust efficiency — motor health 0.87 ok → 0.33 critical, aggregate
+   0.767 → 0.325 (`docs/research-brief-26.md`).
+6. **Next (priority #3)** learned risk prior from recorded flight/jam telemetry,
+   then part-level low-watt thermal model + data pipeline, then the
+   neuromorphic/edge energy and perception path.
 
 ---
 

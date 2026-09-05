@@ -136,6 +136,48 @@ class TestHealth(unittest.TestCase):
         self.assertIn("predictive_maintenance_health", dec.declared_used)
 
 
+class TestTelemetryHealth(unittest.TestCase):
+    def _run(self, duration=10.0, motor_degrade_at=None, motor_eff=1.0):
+        from airlab.simulator import Simulator, SimConfig
+        cfg = SimConfig()
+        cfg.duration = duration
+        cfg.cruise_speed = 2.0
+        cfg.motor_efficiency = motor_eff
+        cfg.motor_degrade_at = motor_degrade_at
+        cfg.motor_degrade_eff = 0.7
+        cfg.guardian_health_enabled = True
+        sim = Simulator(cfg)
+        sim.run()
+        return sim
+
+    def test_telemetry_health_healthy_run_stays_ok(self):
+        sim = self._run(duration=8.0)
+        self.assertIsNotNone(sim.guardian_health_bridge)
+        hs = sim.guardian_health_bridge.health.scores()
+        # baseline learning (warmup) then healthy flight must stay non-critical
+        self.assertGreaterEqual(sim.guardian_health_bridge.prognosis.history[-1], 0.5)
+        self.assertFalse(any(h.status == "critical" for h in hs))
+
+    def test_telemetry_health_detects_mid_flight_motor_degrade(self):
+        """Calibrate healthy then degrade the motor at 6 s; the health engine
+        must see the *same aircraft* degrade, not a different run."""
+        sim = self._run(duration=11.0, motor_degrade_at=6.0)
+        hb = sim.guardian_health_bridge
+        # pre-fault window: after warmup (2 s) before the fault (6 s)
+        pre_motor = [h["motor_resid"] for h in hb.history
+                     if h["motor_resid"] < 1.0][:4]
+        post_motor = [h["motor_resid"] for h in hb.history[-20:]]
+        self.assertGreater(sum(post_motor) / len(post_motor),
+                           sum(pre_motor) / len(pre_motor))
+        # final motor health must be worse than the health it had before fault
+        pre_health = [h["health"] for h in hb.history
+                      if h["health"] > 0][:5]
+        self.assertLess(
+            sum(h["health"] for h in hb.history[-5:]) / 5,
+            sum(pre_health) / len(pre_health),
+        )
+
+
 class TestSimBridge(unittest.TestCase):
     def _bridge(self, obstacle=True, battery=1.0):
         from airlab.mission import WaypointMission

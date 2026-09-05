@@ -212,6 +212,45 @@ def main() -> int:
               f"{e['bas_risk']:.3f}->{e['repl_risk']:.3f} (red {e['risk_reduction']:.3f}), "
               f"clearance {e['clearance_m']:.2f}m, extra {e['extra_frac']:.2%}")
     print(f"[guardian] wrote out/guardian/sim_bridge.csv")
+
+    # Health bridge on real fused telemetry (priority #2).  We fly the full
+    # stack twice: once healthy, once with a degrading motor (physical
+    # max-thrust shortfall), and show the health engine separates them from
+    # real throttle/accel/battery/thermal/vib/consensus telemetry.
+    def _run_health(motor_degrade_at=None):
+        cfg = SimConfig()
+        cfg.duration = 14.0
+        cfg.cruise_speed = 2.0
+        cfg.motor_degrade_at = motor_degrade_at
+        cfg.motor_degrade_eff = 0.7
+        cfg.guardian_health_enabled = True
+        sim = Simulator(cfg)
+        sim.run()
+        return sim
+
+    healthy_sim = _run_health()
+    degraded_sim = _run_health(motor_degrade_at=7.0)
+    hb = degraded_sim.guardian_health_bridge
+    hs = {h.subsystem: (h.score, h.status) for h in hb.health.scores()}
+    hh = {h.subsystem: (h.score, h.status)
+          for h in healthy_sim.guardian_health_bridge.health.scores()}
+    rows_h2 = []
+    for name in hh:
+        rows_h2.append({"run": "healthy", "subsystem": name,
+                        "score": round(float(hh[name][0]), 3),
+                        "status": hh[name][1]})
+        rows_h2.append({"run": "degraded", "subsystem": name,
+                        "score": round(float(hs[name][0]), 3),
+                        "status": hs[name][1]})
+    _write("out/guardian/telemetry_health.csv", rows_h2)
+    print("[guardian][telemetry_health] healthy = "
+          + ", ".join(f"{k}={v[0]:.2f}({v[1]})" for k, v in hh.items()))
+    print("[guardian][telemetry_health] degraded = "
+          + ", ".join(f"{k}={v[0]:.2f}({v[1]})" for k, v in hs.items()))
+    print(f"[guardian][telemetry_health] final_agg healthy="
+          f"{healthy_sim.guardian_health_bridge.prognosis.history[-1]:.3f} "
+          f"degraded={hb.prognosis.history[-1]:.3f}")
+    print(f"[guardian] wrote out/guardian/telemetry_health.csv")
     return 0
 
 

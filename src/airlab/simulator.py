@@ -25,6 +25,7 @@ from .landmarks import LandmarkField, LandmarkConsistency
 from .factorgraph import SlidingFactorGraph, build_keyframe, ImuPreintegrator
 from .trust import FrameTrustLearner
 from .guardian.sim_bridge import MissionReplanBridge, BridgeConfig
+from .guardian.telemetry_health import TelemetryHealthBridge
 
 
 def _cone_bearing(axis: np.ndarray, a_rad: float, b_rad: float) -> np.ndarray:
@@ -187,6 +188,22 @@ class SimConfig:
         self.guardian_max_extra_frac = 0.50
         self.guardian_replan_kwargs: dict = {}
 
+        # Guardian health bridge inputs (priority #2): the health engine now
+        # feeds on *real* simulator telemetry.  motor_efficiency degrades the
+        # delivered thrust so a "motor degradation" is a real physical fault,
+        # and the thermal state is a lumped first-order model driven by the
+        # actual power draw.  Both are optional and off by default.
+        self.motor_efficiency = 1.0
+        # Mid-flight motor degradation (s): the vehicle physically loses
+        # delivered thrust from this time onward.  Used to exercise the
+        # predictive-maintenance engine on a genuinely in-flight fault while
+        # the health baseline remains calibrated on the healthy startup.
+        self.motor_degrade_at = None
+        self.motor_degrade_eff = 0.7
+        self.guardian_health_enabled = False
+        self.guardian_health_kwargs: dict = {}
+        self.thermal_ambient_c = 25.0
+
 
 class SimRun:
     """A single simulation run; keeps every recorded signal."""
@@ -310,6 +327,12 @@ class Simulator:
                     **self.cfg.guardian_replan_kwargs,
                 ),
             )
+        # Guardian predictive-maintenance health bridge (priority #2): reads
+        # the real fused telemetry each frame and emits subsystem scores.
+        self.guardian_health_bridge: TelemetryHealthBridge | None = None
+        if self.cfg.guardian_health_enabled:
+            self.guardian_health_bridge = TelemetryHealthBridge(
+                self, **self.cfg.guardian_health_kwargs)
         self.rng = np.random.default_rng(self.cfg.seed)
         self.time = 0.0
         self.last_imu = None
@@ -546,7 +569,9 @@ class Simulator:
         return float(np.clip(raw, 0.0, 1.0))
 
     def _make_vehicle(self, cfg: SimConfig) -> Quadrotor:
-        return Quadrotor(**cfg.vehicle_kwargs)
+        kwargs = dict(cfg.vehicle_kwargs)
+        kwargs.setdefault("motor_efficiency", float(cfg.motor_efficiency))
+        return Quadrotor(**kwargs)
 
     def _make_sensors(self, cfg: SimConfig) -> SensorSuite:
         return SensorSuite(**cfg.sensor_kwargs)
@@ -563,6 +588,8 @@ class Simulator:
         self.ekf.x = _wrap_state(x)
 
     def _apply_faults(self) -> None:
+        if self.cfg.motor_degrade_at is not None and self.time >= self.cfg.motor_degrade_at:
+            self.vehicle.motor_efficiency = float(self.cfg.motor_degrade_eff)
         if self.cfg.gps_outage is not None:
             start, end = self.cfg.gps_outage
             if start <= self.time < end:
@@ -792,6 +819,10 @@ class Simulator:
 
             # ---- plant ----
             self.vehicle.step(control, dt, wind_ned=self.cfg.wind_ned)
+
+            # ---- guardian predictive-maintenance health ----
+            if self.guardian_health_bridge is not None:
+                self.guardian_health_bridge.step(dt)
 
             # ---- sensor housekeeping + sampling based on schedules ----
             self.sensors.step(dt)

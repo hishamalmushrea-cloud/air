@@ -82,8 +82,8 @@ sensors → fusion EKF → controller → dynamics
 |---|---|---|
 | Critical | Port predictive re-planning into the real mission controller (`simulator.py`) | **✅ done (brief-25)** |
 | High | **Predictive maintenance / subsystem Health Score** | **✅ done (brief-24)** |
-| High | Feed health engine real simulator telemetry | **NEXT → priority #2** |
-| High | Learned risk prior from flight/jam telemetry | next after sim-health |
+| High | Feed health engine real simulator telemetry | **✅ done (brief-26)** |
+| High | Learned risk prior from flight/jam telemetry | **NEXT → priority #3** |
 | High | GCS telemetry + health dashboard | near future |
 | Medium | Thermal model (CPU/ESC/motor/battery) | NOW |
 | Medium | Data pipeline (edge → storage → analytics) | NOW |
@@ -99,7 +99,7 @@ sensors → fusion EKF → controller → dynamics
 - #4 Thermal model **36**
 - #5 Neuromorphic SNN / NeuViT perception **33** (highest innovation, long-term).
 
-## 7. Generation log (G0 → G4)
+## 7. Generation log (G0 → G5)
 - **G0**: baseline stack (dynamics/EKF/controller/safety FSM).
 - **G1**: independent landmark + factor-graph detectors; bias.25 crash → 0.
 - **G2**: learned frame trust + adaptive_veto_trust; degenerate-parallax &
@@ -107,8 +107,10 @@ sensors → fusion EKF → controller → dynamics
 - **G3**: Guardian brain + oracle risk re-planning (this program start).
 - **G4**: predictive maintenance / health score + guardian oracle ported into
   the real mission controller (`MissionReplanBridge` in `simulator.py`).
-- **G5 (next)**: health engine consumes real fused simulator telemetry; then
-  low-watt thermal model; then learned risk prior.
+- **G5**: health engine consumes real fused simulator telemetry
+  (`TelemetryHealthBridge`, physical mid-flight motor degradation).
+- **G6 (next)**: learned risk prior from recorded flight/jam telemetry; then
+  part-level low-watt thermal model.
 
 ## 8. Engineering Decision Log (current entries)
 
