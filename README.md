@@ -236,8 +236,15 @@ the remote/attack surface is intentionally defensive only (no weapons/targeting)
     fuses depth+event conservatively.  Demo: event path detects the object at
     **4.0 W vs 8.0 W depth**, fusion keeps the confirmed obstacle
     (`docs/research-brief-34.md`).
-14. **Next** onboard-vs-ground compute split, then thermal-aware trajectory
-    (cool a hot route, not only reject it).
+14. **Edge-vs-ground compute split (implemented).**
+    `EdgeGroundSplit` classifies guardian compute tasks (safety-critical →
+    onboard always; high-latency non-private analytics → ground/cloud;
+    privacy+low-bandwidth → onboard), with declared-estimate link/reliability
+    constants.  Demo: 4 safety tasks all onboard (0.21 TOPS, 4.9 W, ~61 % power
+    budget), ~84 % analytics data offloaded (10.5 Mbps)
+    (`docs/research-brief-35.md`).
+15. **Next** thermal-aware trajectory (cool a hot route, not only reject it),
+    then dynamic link-aware rebalancing, then real GCS integration.
 
 ---
 

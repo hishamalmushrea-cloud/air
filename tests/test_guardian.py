@@ -240,6 +240,50 @@ class TestSimBridge(unittest.TestCase):
         self.assertEqual(len(lands), 0)
 
 
+class TestEdgeSplit(unittest.TestCase):
+    def test_safety_critical_tasks_always_onboard(self):
+        from airlab.guardian import EdgeGroundSplit
+        split = EdgeGroundSplit()
+        res = split.place()
+        safety = [p for p in res.placements if p.task in
+                  ("threat_detection", "guardian_evasion", "predictive_replan",
+                   "sensor_fusion")]
+        self.assertEqual(len(safety), 4)
+        for p in safety:
+            self.assertEqual(p.location, "onboard")
+            self.assertTrue(p.onboard)
+            self.assertIn("safety-critical", p.reason)
+
+    def test_analytics_offload_under_high_latency(self):
+        from airlab.guardian import EdgeGroundSplit, LinkEstimate
+        split = EdgeGroundSplit(LinkEstimate(link_bandwidth_mbps=20.0,
+                                             ground_rtt_ms=50.0,
+                                             cloud_rtt_ms=200.0))
+        res = split.place()
+        # latency-tolerant, non-private analytics can move to ground/cloud
+        by_task = {p.task: p for p in res.placements}
+        self.assertIn(by_task["mission_post_process"].location,
+                      ("ground", "cloud"))
+        self.assertGreater(res.offloadable_data_mbps, 0.0)
+
+    def test_low_bandwidth_privacy_sensitive_analytics_stays_onboard(self):
+        from airlab.guardian import EdgeGroundSplit, LinkEstimate
+        split = EdgeGroundSplit(LinkEstimate(link_bandwidth_mbps=1.0))
+        res = split.place()
+        by_task = {p.task: p for p in res.placements}
+        self.assertEqual(by_task["map_accumulation"].location, "onboard")
+        self.assertEqual(by_task["health_trend_analytics"].location, "onboard")
+
+    def test_place_reports_edge_budget(self):
+        from airlab.guardian import EdgeGroundSplit
+        res = EdgeGroundSplit().place()
+        s = res.summary()
+        self.assertGreater(s["onboard_topps"], 0.0)
+        self.assertGreater(s["onboard_power_w"], 0.0)
+        self.assertLessEqual(s["onboard_topps"], 0.35 + 1e-9)
+        self.assertTrue(res.score["safety_full_onboard"])
+
+
 class TestPerception(unittest.TestCase):
     def _vision(self):
         from airlab.guardian import PerceptionConfig, SpikeVision

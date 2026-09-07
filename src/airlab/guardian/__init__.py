@@ -34,6 +34,8 @@ from .log_reader import (Px4RosLogReader, Px4LogResult, write_test_fixture,
 from .perception import (PerceptionConfig, EdgePerception, SpikeVision,
                          PerceptionToGuardian, EventConfig, EventVision,
                          MultiSensorGuardian)
+from .edge_split import (ComputeTask, PlacementResult, SplitResult,
+                         LinkEstimate, EdgeGroundSplit)
 
 __all__ = [
     "GuardianState",
@@ -78,4 +80,9 @@ __all__ = [
     "EventConfig",
     "EventVision",
     "MultiSensorGuardian",
+    "ComputeTask",
+    "PlacementResult",
+    "SplitResult",
+    "LinkEstimate",
+    "EdgeGroundSplit",
 ]

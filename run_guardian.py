@@ -528,6 +528,38 @@ def main() -> int:
     print(f"[guardian][event] fusion kept={len(fused)} objects "
           f"(depth + event consensus), wrote out/guardian/event_perception.csv")
 
+    # Edge-vs-Ground compute split (master prompt section 18, priority #10).
+    # Transparent allocator keeps safety-critical tasks onboard and offloads
+    # latency-tolerant, low-privacy analytics to GCS/cloud by declared-estimate
+    # link/reliability numbers.
+    from airlab.guardian import EdgeGroundSplit, LinkEstimate
+    split = EdgeGroundSplit(LinkEstimate(link_bandwidth_mbps=20.0,
+                                         ground_rtt_ms=50.0,
+                                         cloud_rtt_ms=200.0))
+    sres = split.place()
+    rows_split = []
+    for p in sres.placements:
+        rows_split.append({
+            "task": p.task, "location": p.location, "onboard": int(p.onboard),
+            "reason": p.reason, "latency_ms": round(p.latency_ms, 2),
+            "power_w": round(p.power_w, 2),
+            "bandwidth_mbps": round(p.bandwidth_mbps, 2),
+            "privacy_risk": p.privacy_risk,
+        })
+    _write("out/guardian/edge_split.csv", rows_split)
+    ss = sres.summary()
+    print(f"[guardian][edge_split] safety tasks all onboard="
+          f"{sres.score['safety_full_onboard']} "
+          f"onboard_topps={ss['onboard_topps']} "
+          f"onboard_power={ss['onboard_power_w']}W "
+          f"edge_power_frac={sres.score['edge_power_frac']} "
+          f"edge_topps_frac={sres.score['edge_topps_frac']}")
+    print(f"[guardian][edge_split] offload_frac="
+          f"{sres.score['ground_offload_fraction']} "
+          f"_data_mbps={ss['offloadable_data_mbps']} "
+          f"ground_latency={ss['ground_latency_ms']}ms")
+    print(f"[guardian] wrote out/guardian/edge_split.csv")
+
     # Dynamic thermal state in re-planning (priority #8).  Instead of always
     # restarting the thermal model at ambient, feed the model the *live*
     # node temperatures.  Demo: a flight that has already heated the edge/NPU,
