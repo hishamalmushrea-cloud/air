@@ -229,8 +229,15 @@ the remote/attack surface is intentionally defensive only (no weapons/targeting)
     limit.  Demo: cold start feasible; live hot edge cools to 49.1 °C
     (feasible); live hot battery remains over 45 °C and **rejects**
     (`docs/research-brief-33.md`).
-13. **Next** event-camera/RGB perception and the onboard-vs-ground compute
-    split.
+13. **Event-camera / RGB motion perception (implemented, simulated/estimated).**
+    `EventVision` is a transparent event-camera/motion surrogate that
+    accumulates sparse `(x,y,polarity)` events into a low-res occupancy
+    histogram, thresholds, and emits the same Obstacles; `MultiSensorGuardian`
+    fuses depth+event conservatively.  Demo: event path detects the object at
+    **4.0 W vs 8.0 W depth**, fusion keeps the confirmed obstacle
+    (`docs/research-brief-34.md`).
+14. **Next** onboard-vs-ground compute split, then thermal-aware trajectory
+    (cool a hot route, not only reject it).
 
 ---
 

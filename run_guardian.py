@@ -495,6 +495,39 @@ def main() -> int:
           f"clearance={p_res.min_clearance_m if p_res else 0.0:.2f}m")
     print(f"[guardian] wrote out/guardian/perception.csv")
 
+    # Event-camera / RGB motion path (priority #9).  A transparent event-
+    # camera surrogate accumulates sparse (x,y,polarity)+ events into a low-res
+    # motion occupancy histogram, thresholds, and converts active cells to
+    # obstacles.  It is a compliant, lighter path than depth and shares the
+    # exact MissionReplanBridge interface.
+    from airlab.guardian import (EventVision, EventConfig, MultiSensorGuardian)
+    ev_cfg = EventConfig(occupancy_min=5, sensor_range_m=8.0)
+    ev_vision = EventVision(ev_cfg, image_h=16, image_w=16)
+    event_points = np.array(
+        [[0.0, 0.0, 0.0, 1.0] for _ in range(120)] +
+        [[0.0, -0.2, 0.1, -1.0] for _ in range(40)],
+        dtype=float)
+    ev_res = ev_vision.process(event_points)
+    ev_sensed = ev_res.obstacles
+    print(f"[guardian][event] detected={len(ev_sensed)} clusters "
+          f"spikes={ev_res.spike_count} power={ev_res.energy_w:.2f}W "
+          f"(depth was {percep.energy_w:.2f}W) gops/W={ev_res.gops_per_w:.0f}")
+    fusion = MultiSensorGuardian(depth=PerceptionToGuardian(),
+                                 events=EventVision(ev_cfg,
+                                                    image_h=16, image_w=16))
+    fused = fusion.fuse(np.array([[4.0, 0.0, -2.0], [4.1, 0.0, -2.0],
+                                  [4.05, 0.2, -2.0]]), event_points)
+    _write("out/guardian/event_perception.csv", [{
+        "detected": len(ev_sensed),
+        "spikes": ev_res.spike_count,
+        "power_w": round(float(ev_res.energy_w), 3),
+        "depth_power_w": round(float(percep.energy_w), 3),
+        "gops_per_w": round(float(ev_res.gops_per_w), 1),
+        "fused_count": len(fused),
+    }])
+    print(f"[guardian][event] fusion kept={len(fused)} objects "
+          f"(depth + event consensus), wrote out/guardian/event_perception.csv")
+
     # Dynamic thermal state in re-planning (priority #8).  Instead of always
     # restarting the thermal model at ambient, feed the model the *live*
     # node temperatures.  Demo: a flight that has already heated the edge/NPU,

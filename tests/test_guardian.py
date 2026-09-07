@@ -295,6 +295,42 @@ class TestPerception(unittest.TestCase):
         self.assertTrue(res.risk_reduction > 0.0)
         self.assertTrue(bridge.applied)
 
+    def event_points(self):
+        # A dense burst of events in one image cell -> detected obstacle.
+        ev = []
+        for i in range(20):
+            for j in range(20):
+                ev.append([0.0, 0.0, 0.0, 1.0])
+        return np.array(ev, dtype=float)
+
+    def test_event_vision_detects_occupancy(self):
+        from airlab.guardian import EventVision, EventConfig
+        ev_f = EventVision(EventConfig(occupancy_min=3, sensor_range_m=8.0),
+                           image_h=16, image_w=16)
+        res = ev_f.process(self.event_points())
+        self.assertEqual(len(res.obstacles), 1)
+        self.assertGreater(res.energy_w, 0.0)
+        self.assertLess(res.energy_w, 8.0)  # event path is lighter than depth
+
+    def test_event_and_depth_fusion_is_conservative(self):
+        from airlab.guardian import (PerceptionToGuardian, EventVision,
+                                     EventConfig, MultiSensorGuardian)
+        fusion = MultiSensorGuardian(
+            depth=PerceptionToGuardian(),
+            events=EventVision(EventConfig(occupancy_min=3,
+                                           sensor_range_m=8.0),
+                               image_h=16, image_w=16))
+        # depth sees one object, event sees the same -> keep one
+        depth_pts = np.array([[3.0, 0.0, -2.0], [3.1, 0.0, -2.0],
+                              [3.05, 0.2, -2.0]])
+        obs = fusion.fuse(depth_pts, self.event_points())
+        self.assertGreaterEqual(len(obs), 1)
+
+    def test_event_no_events_is_empty(self):
+        from airlab.guardian import EventVision, EventConfig
+        ev_f = EventVision(EventConfig(occupancy_min=3), image_h=16, image_w=16)
+        self.assertEqual(len(ev_f.process(None).obstacles), 0)
+
 
 class TestLogReader(unittest.TestCase):
     def test_px4_reader_loads_fixture_and_refuses_unlabelled_prior(self):

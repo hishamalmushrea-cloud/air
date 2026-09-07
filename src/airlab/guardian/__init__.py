@@ -32,7 +32,8 @@ from .pipeline import (DataPipeline, TelemetryDataset, RiskTelemetryDataset,
 from .log_reader import (Px4RosLogReader, Px4LogResult, write_test_fixture,
                          FIXTURE_LABEL)
 from .perception import (PerceptionConfig, EdgePerception, SpikeVision,
-                         PerceptionToGuardian)
+                         PerceptionToGuardian, EventConfig, EventVision,
+                         MultiSensorGuardian)
 
 __all__ = [
     "GuardianState",
@@ -74,4 +75,7 @@ __all__ = [
     "EdgePerception",
     "SpikeVision",
     "PerceptionToGuardian",
+    "EventConfig",
+    "EventVision",
+    "MultiSensorGuardian",
 ]
