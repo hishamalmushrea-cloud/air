@@ -243,8 +243,15 @@ the remote/attack surface is intentionally defensive only (no weapons/targeting)
     constants.  Demo: 4 safety tasks all onboard (0.21 TOPS, 4.9 W, ~61 % power
     budget), ~84 % analytics data offloaded (10.5 Mbps)
     (`docs/research-brief-35.md`).
-15. **Next** thermal-aware trajectory (cool a hot route, not only reject it),
-    then dynamic link-aware rebalancing, then real GCS integration.
+15. **Thermal-aware trajectory (implemented).**
+    `PredictiveRePlanner` now *mitigates* a hot route by searching a
+    compute/power profile (reduce edge ```compute_frac``` and/or throttle) that
+    keeps every node under its own limit, and only rejects when no in-range
+    profile is safe.  Demo (`out/guardian/thermal_trajectory.csv`): hot edge
+    59 °C → feasible at 90 % throttle (100.8 W); extreme 68 °C → rejected
+    (`docs/research-brief-36.md`).
+16. **Next** dynamic link-aware rebalancing, then real GCS integration, then
+    constraint-aware trajectory.
 
 ---
 

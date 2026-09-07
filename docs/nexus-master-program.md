@@ -93,7 +93,8 @@ sensors → fusion EKF → controller → dynamics
 | Medium | Dynamic thermal state in re-planning | **✅ done (brief-33)** |
 | High | Event-camera / RGB perception (second sensing path) | **✅ done (brief-34, simulated/estimated surrogate)** |
 | Medium | Onboard-vs-ground compute split | **✅ done (brief-35)** |
-| Medium | Thermal-aware trajectory (cool a hot route) | **NEXT → priority #11** |
+| Medium | Thermal-aware trajectory (cool a hot route) | **✅ done (brief-36)** |
+| Medium | Dynamic link-aware rebalancing | **NEXT → priority #12** |
 | Medium | Motor/ESC/prop system model (thrust/power/temp) | RESEARCH |
 | Experimental | Neuromorphic SNN planner @ ~847 GOp/s/W class | LONG TERM |
 | Experimental | Swarm split-risk graph | LONG TERM |
@@ -134,8 +135,10 @@ sensors → fusion EKF → controller → dynamics
   `MultiSensorGuardian` conservative cross-sensor fusion).
 - **G14**: onboard-vs-ground compute split (`EdgeGroundSplit`; safety stays
   onboard, privacy/low-bandwidth analytics offload only when safe).
-- **G15 (next)**: thermal-aware trajectory (cool a hot route, not only reject);
-  then dynamic link-aware rebalancing; then real GCS integration.
+- **G15**: thermal-aware trajectory (cool a hot route, not only reject) —
+  `_thermal_feasibility` searches a compute/power mitigation profile.
+- **G16 (next)**: dynamic link-aware rebalancing; then real GCS integration;
+  then constraint-aware trajectory.
 
 ## 8. Engineering Decision Log (current entries)
 

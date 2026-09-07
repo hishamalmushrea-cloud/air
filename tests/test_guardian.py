@@ -445,6 +445,44 @@ class TestDynamicThermal(unittest.TestCase):
             bridge.planner.thermal_initial_temps.get("cpu_npu"), 52.0)
 
 
+    def test_thermal_mitigation_cools_hot_edge_route(self):
+        # A hot edge just under a hard limit can be made feasible by reducing
+        # the cruise profile (power, and therefore edge/ESC/motor heat) instead
+        # of rejecting the route outright.  This is the "cool it, not only
+        # reject it" capability.
+        from airlab.guardian import PredictiveRePlanner
+        import numpy as np
+        route = [np.array([0.0, 0.0, -2.0]), np.array([12.0, 0.0, -2.0])]
+        planner = PredictiveRePlanner(
+            thermal_aware=True, thermal_ambient_c=25.0,
+            thermal_initial_temps={"cpu_npu": 59.0, "esc": 30.0,
+                                   "motor": 30.0, "battery": 30.0},
+            lateral_offsets=(0.0,), vertical_offsets=(0.0,))
+        res = planner.plan(route[0], route[1:], battery_frac=1.0)
+        self.assertTrue(res.thermal_feasible)
+        self.assertTrue(res.thermal_mitigated)
+        self.assertLess(res.thermal_power_frac, 1.0)
+        self.assertLess(res.thermal_power_w, planner.hover_power_w)
+        self.assertNotIn("thermal_infeasible", res.reasons)
+
+    def test_too_hot_route_still_rejects(self):
+        # An extreme hot edge has no feasible throttle profile inside the
+        # search range: honest rejection, not a false mitigation.
+        from airlab.guardian import PredictiveRePlanner
+        import numpy as np
+        route = [np.array([0.0, 0.0, -2.0]), np.array([12.0, 0.0, -2.0])]
+        planner = PredictiveRePlanner(
+            thermal_aware=True, thermal_ambient_c=25.0,
+            thermal_initial_temps={"cpu_npu": 68.0, "esc": 30.0,
+                                   "motor": 30.0, "battery": 30.0},
+            lateral_offsets=(0.0,), vertical_offsets=(0.0,))
+        res = planner.plan(route[0], route[1:], battery_frac=1.0)
+        self.assertFalse(res.thermal_feasible)
+        self.assertFalse(res.feasible)
+        self.assertFalse(res.thermal_mitigated)
+        self.assertIn("thermal_infeasible", res.reasons)
+
+
 class TestThermalBudget(unittest.TestCase):
     def test_planner_rejects_hot_route(self):
         from airlab.guardian import PredictiveRePlanner

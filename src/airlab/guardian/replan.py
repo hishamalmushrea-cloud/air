@@ -39,6 +39,14 @@ class ReplanResult:
     thermal_max_c: float = 0.0
     thermal_worst_node: str = ""
     thermal_margin_c: float = float("inf")
+    # Thermal-aware trajectory modulation (brief-36): when the raw cruise
+    # profile would overheat a node, the planner returns the reduced
+    # compute_frac / throttle-power profile that keeps the same route feasible
+    # while cooling the hot node (instead of only rejecting it).
+    thermal_mitigated: bool = False
+    thermal_compute_frac: float = 0.3
+    thermal_power_frac: float = 1.0
+    thermal_power_w: float = 0.0
     reasons: list[str] = field(default_factory=list)
 
 
@@ -131,7 +139,8 @@ class PredictiveRePlanner:
         req = (energy_h / max(self.battery_capacity_wh, 1e-9)) + self.energy_reserve_frac
         feasible = req <= battery_frac + 1e-9
         mc = self._min_clearance(repl_route, obstacles or [])
-        therm_feasible, therm_max, therm_worst, therm_margin = \
+        therm_feasible, therm_max, therm_worst, therm_margin, therm_mit, \
+            therm_cf, therm_pf, therm_pw = \
             self._thermal_feasibility(repl_route, req)
 
         reasons = []
@@ -153,6 +162,8 @@ class PredictiveRePlanner:
             feasible=feasible and therm_feasible, min_clearance_m=mc,
             thermal_feasible=therm_feasible, thermal_max_c=therm_max,
             thermal_worst_node=therm_worst, thermal_margin_c=therm_margin,
+            thermal_mitigated=therm_mit, thermal_compute_frac=therm_cf,
+            thermal_power_frac=therm_pf, thermal_power_w=therm_pw,
             reasons=reasons,
         )
 
@@ -165,30 +176,67 @@ class PredictiveRePlanner:
                             reasons=["no_remaining_waypoints"])
 
     def _thermal_feasibility(self, route, energy_req: float) -> tuple[
-            bool, float, str, float]:
+            bool, float, str, float, bool, float, float, float]:
         if not self.thermal_aware:
-            return True, 0.0, "", float("inf")
-        # Simulation of the part-level thermal model over the flight time
-        # implied by this route at cruise power.  We use a *fresh* model with
-        # the same part constants (importing the class directly) so repeated
-        # calls never carry heat from a previous planning cycle.
+            return True, 0.0, "", float("inf"), False, 0.3, 1.0, 0.0
+        # Nominal profile first.
+        nom = self._sim_thermal(route, compute_frac=0.3, power_frac=1.0)
+        if nom[0]:
+            return True, nom[1], nom[2], nom[3], False, 0.3, 1.0, self.hover_power_w
+        # The nominal route over-heats a node.  Search for the *least*
+        # disruptive mitigation: reduce compute load (the edge/NPU) and/or
+        # reduce propulsive power (slower, so the propulsion stack runs cooler
+        # per second over a longer exposure).  We prefer staying close to
+        # nominal, and keep the most disruptive (power) reduction for last.
+        best: tuple[float, float, float] | None = None
+        best_out: tuple[bool, float, str, float, float, float] | None = None
+        for pf in (1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4):
+            for cf in (0.3, 0.25, 0.2, 0.15, 0.1, 0.05):
+                ok, max_t, worst, margin = self._sim_thermal(
+                    route, compute_frac=cf, power_frac=pf)
+                if not ok:
+                    continue
+                # disruption = how far we move from the nominal profile.  The
+                # grid order already prefers nominal -> least reduction; among
+                # equal-disruption keep the smallest power hit (best cooling
+                # for the same compute reduction).
+                key = (0.3 - cf) + 0.7 * (1.0 - pf)
+                if best is None or key < best[0] - 1e-9 or \
+                        (abs(key - best[0]) < 1e-9 and pf > best[1]):
+                    best = (key, pf, cf)
+                    best_out = (ok, max_t, worst, margin, cf, pf)
+        if best_out is None:
+            return False, nom[1], nom[2], nom[3], False, 0.3, 1.0, \
+                self.hover_power_w
+        _, max_t, worst, margin, cf, pf = best_out
+        return True, max_t, worst, margin, True, cf, pf, \
+            self.hover_power_w * pf
+
+    def _sim_thermal(self, route, compute_frac: float,
+                     power_frac: float) -> tuple[bool, float, str, float]:
+        """Simulate the part-level thermal model for a route at a profile.
+
+        Returns (ok, max_temp_c, worst_node, margin_c).  A node is only ok if
+        it stays under its OWN limit.
+        """
         from .thermal import PartThermalModel
         model = PartThermalModel(ambient_c=self.thermal_ambient_c,
                                  initial_temps=self.thermal_initial_temps)
-        t_total = max(0.1, self.route_length(route) / max(self.cruise_speed, 0.1))
-        power = self.hover_power_w
+        pf = float(np.clip(power_frac, 0.1, 1.0))
+        cf = float(np.clip(compute_frac, 0.0, 1.0))
+        # Reducing propulsive power slows the aircraft, so exposure time grows
+        # for the same route length (honest coupling, not a silent free lunch).
+        speed = max(0.2, self.cruise_speed * pf)
+        t_total = max(0.1, self.route_length(route) / max(speed, 0.2))
+        power = self.hover_power_w * pf
         steps = max(1, int(min(t_total, 7200.0) / 0.5))
         dt = t_total / steps
         for _ in range(steps):
-            model.step(power, dt, compute_frac=0.3)
-        temps = model.temperatures()
+            model.step(power, dt, compute_frac=cf)
         worst = model.worst_node()
         max_t = model.max_temp()
         node = next((n for n in model.nodes if n.name == worst), None)
         margin = node.margin_c if node is not None else float("inf")
-        # A node is feasible only if it stays under its OWN limit, not under a
-        # single fixed reference (the edge and battery have very different
-        # limits).
         worst_limit = node.max_temp_c if node is not None else 0.0
         return max_t < worst_limit, max_t, worst, margin
 

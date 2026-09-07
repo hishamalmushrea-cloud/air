@@ -613,6 +613,55 @@ def main() -> int:
           f"max={hot_batt.thermal_max_c:.1f}C "
           f"margin={hot_batt.thermal_margin_c:.1f}C")
     print(f"[guardian] wrote out/guardian/dynamic_thermal.csv")
+
+    # Thermal-aware trajectory (priority #11): a hot edge just under the
+    # limit can be *cooled into feasibility* by reducing the cruise profile
+    # (power + compute) instead of rejecting the route.  An extreme hot edge
+    # has no in-range throttle profile and is honestly rejected.
+    from airlab.guardian import PredictiveRePlanner as ThermalTrajPlanner
+    _route = (np.array([0, 0, -2.0]), [np.array([12, 0, -2.0])])
+    edge_58 = ThermalTrajPlanner(
+        thermal_aware=True, thermal_ambient_c=25.0,
+        thermal_initial_temps={"cpu_npu": 59.0, "esc": 30.0,
+                               "motor": 30.0, "battery": 30.0},
+        cruise_speed=3.0, hover_power_w=112.0, battery_capacity_wh=71.0,
+        lateral_offsets=(0.0,), vertical_offsets=(0.0,)).plan(
+        _route[0], _route[1], battery_frac=1.0)
+    edge_68 = ThermalTrajPlanner(
+        thermal_aware=True, thermal_ambient_c=25.0,
+        thermal_initial_temps={"cpu_npu": 68.0, "esc": 30.0,
+                               "motor": 30.0, "battery": 30.0},
+        cruise_speed=3.0, hover_power_w=112.0, battery_capacity_wh=71.0,
+        lateral_offsets=(0.0,), vertical_offsets=(0.0,)).plan(
+        _route[0], _route[1], battery_frac=1.0)
+    _write("out/guardian/thermal_trajectory.csv", [
+        {"case": "hot_edge_59C", "thermal_feasible": int(edge_58.thermal_feasible),
+         "mitigated": int(edge_58.thermal_mitigated),
+         "compute_frac": round(float(edge_58.thermal_compute_frac), 2),
+         "power_frac": round(float(edge_58.thermal_power_frac), 2),
+         "power_w": round(float(edge_58.thermal_power_w), 1),
+         "max_temp_c": round(float(edge_58.thermal_max_c), 2),
+         "worst_node": edge_58.thermal_worst_node,
+         "reasons": ";".join(edge_58.reasons)},
+        {"case": "hot_edge_68C", "thermal_feasible": int(edge_68.thermal_feasible),
+         "mitigated": int(edge_68.thermal_mitigated),
+         "compute_frac": round(float(edge_68.thermal_compute_frac), 2),
+         "power_frac": round(float(edge_68.thermal_power_frac), 2),
+         "power_w": round(float(edge_68.thermal_power_w), 1),
+         "max_temp_c": round(float(edge_68.thermal_max_c), 2),
+         "worst_node": edge_68.thermal_worst_node,
+         "reasons": ";".join(edge_68.reasons)},
+    ])
+    print(f"[guardian][thermal_traj] hot_edge_59C feasible={edge_58.feasible} "
+          f"mitigated={edge_58.thermal_mitigated} "
+          f"cf={edge_58.thermal_compute_frac} pf={edge_58.thermal_power_frac} "
+          f"pw={edge_58.thermal_power_w:.1f}W max={edge_58.thermal_max_c:.1f}C "
+          f"worst={edge_58.thermal_worst_node}")
+    print(f"[guardian][thermal_traj] hot_edge_68C feasible={edge_68.feasible} "
+          f"mitigated={edge_68.thermal_mitigated} "
+          f"max={edge_68.thermal_max_c:.1f}C worst={edge_68.thermal_worst_node} "
+          f"reasons={edge_68.reasons}")
+    print(f"[guardian] wrote out/guardian/thermal_trajectory.csv")
     return 0
 
 
