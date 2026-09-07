@@ -206,8 +206,15 @@ the remote/attack surface is intentionally defensive only (no weapons/targeting)
    Demo: cool 25 °C → feasible (worst cpu_npu 25.4 °C, margin +29.6 °C); hot
    90 °C → rejected (cpu_npu 90.4 °C, margin −35.4 °C)
    (`docs/research-brief-30.md`).
-10. **Next** a real log reader (actual PX4/ROS telemetry → dataset), then the
-    neuromorphic/edge energy and perception path.
+10. **Real PX4/ROS telemetry log reader (implemented).**
+    `Px4RosLogReader` reads `ulog2csv` topic CSVs / merged ROS CSV and
+    normalises them into the dataset.  Honest design: a real log has no
+    ground-truth risk label, so `fit_prior()` refuses to train on an unlabelled
+    log.  Validated on a **simulated PX4-schema fixture** (no real .ulg/.bag in
+    repo): unlabelled→refused; labelled fixture→prior near 0.844 / far 0.044 and
+    late-mission jam 0.75 vs early 0.067 (`docs/research-brief-31.md`).
+11. **Next** the neuromorphic/edge energy and perception path (sensed
+    obstacles), then dynamic thermal state in re-planning.
 
 ---
 

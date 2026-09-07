@@ -29,6 +29,8 @@ from .telemetry_health import TelemetryHealthBridge
 from .thermal import PartThermalModel, ThermalNode
 from .pipeline import (DataPipeline, TelemetryDataset, RiskTelemetryDataset,
                        _telemetry_row)
+from .log_reader import (Px4RosLogReader, Px4LogResult, write_test_fixture,
+                         FIXTURE_LABEL)
 
 __all__ = [
     "GuardianState",
@@ -62,4 +64,8 @@ __all__ = [
     "TelemetryDataset",
     "RiskTelemetryDataset",
     "_telemetry_row",
+    "Px4RosLogReader",
+    "Px4LogResult",
+    "write_test_fixture",
+    "FIXTURE_LABEL",
 ]

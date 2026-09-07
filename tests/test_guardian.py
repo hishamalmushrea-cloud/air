@@ -240,6 +240,35 @@ class TestSimBridge(unittest.TestCase):
         self.assertEqual(len(lands), 0)
 
 
+class TestLogReader(unittest.TestCase):
+    def test_px4_reader_loads_fixture_and_refuses_unlabelled_prior(self):
+        from airlab.guardian import (Px4RosLogReader, write_test_fixture,
+                                     RiskPriorModel)
+        path = write_test_fixture("out/guardian/px4_fixture.csv", n=120)
+        r = Px4RosLogReader().load(path)
+        self.assertGreater(len(r.telemetry), 100)
+        self.assertGreater(r.risk.n, 100)
+        # no ground-truth label from a logger -> the prior must NOT fit
+        self.assertFalse(r.fit_prior(RiskPriorModel()).fitted)
+
+    def test_px4_reader_fits_labeled_fixture_and_sees_jam(self):
+        from airlab.guardian import (Px4RosLogReader, write_test_fixture,
+                                     RiskPriorModel)
+        path = write_test_fixture("out/guardian/px4_fixture_labeled.csv",
+                                  n=120, with_risk_label=True)
+        r = Px4RosLogReader().load(path)
+        prior = r.fit_prior(RiskPriorModel())
+        self.assertTrue(prior.fitted)
+        arr = r.risk.as_array()
+        # late samples have few satellites => higher jamming feature
+        late_jam = float(np.mean(arr[-20:, 1]))
+        early_jam = float(np.mean(arr[:20, 1]))
+        self.assertGreater(late_jam, early_jam)
+        near = float(prior.predict(np.array([0.5]), np.array([0.0]))[0])
+        far = float(prior.predict(np.array([10.0]), np.array([0.0]))[0])
+        self.assertGreater(near, far)
+
+
 class TestThermalBudget(unittest.TestCase):
     def test_planner_rejects_hot_route(self):
         from airlab.guardian import PredictiveRePlanner

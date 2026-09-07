@@ -408,6 +408,44 @@ def main() -> int:
           f"worst={hot.thermal_worst_node} max={hot.thermal_max_c:.1f}C "
           f"margin={hot.thermal_margin_c:.1f}C")
     print(f"[guardian] wrote out/guardian/thermal_budget.csv")
+
+    # Real PX4/ROS log reader (priority #6).  No real .ulg/.bag flight log is
+    # shipped in the repo, so this demo reads a *simulated* PX4-schema fixture
+    # and honestly shows: (a) an unlabelled log cannot fit the risk prior, and
+    # (b) a labelled fixture (still simulated) can.
+    from airlab.guardian import (Px4RosLogReader, write_test_fixture,
+                                 RiskPriorModel as LogPriorModel,
+                                 FIXTURE_LABEL)
+    plain = write_test_fixture("out/guardian/px4_fixture.csv", n=120)
+    labelled = write_test_fixture("out/guardian/px4_fixture_labeled.csv",
+                                  n=120, with_risk_label=True)
+    r_plain = Px4RosLogReader().load(plain)
+    r_labelled = Px4RosLogReader().load(labelled)
+    prior_plain = r_plain.fit_prior(LogPriorModel())
+    prior_labelled = r_labelled.fit_prior(LogPriorModel())
+    near = float(prior_labelled.predict(np.array([0.5]), np.array([0.0]))[0])
+    far = float(prior_labelled.predict(np.array([10.0]), np.array([0.0]))[0])
+    late_jam = float(np.mean(r_labelled.risk.as_array()[-20:, 1]))
+    early_jam = float(np.mean(r_labelled.risk.as_array()[:20, 1]))
+    _write("out/guardian/log_reader.csv", [{
+        "source": FIXTURE_LABEL,
+        "telemetry_rows": len(r_plain.telemetry),
+        "risk_samples": r_labelled.risk.n,
+        "unlabelled_prior_fitted": int(prior_plain.fitted),
+        "labelled_prior_fitted": int(prior_labelled.fitted),
+        "near_risk": round(near, 4),
+        "far_risk": round(far, 4),
+        "early_jam": round(early_jam, 4),
+        "late_jam": round(late_jam, 4),
+    }])
+    print(f"[guardian][log_reader] source={FIXTURE_LABEL}")
+    print(f"[guardian][log_reader] read {len(r_plain.telemetry)} telemetry "
+          f"rows, {r_labelled.risk.n} risk samples")
+    print(f"[guardian][log_reader] unlabelled_prior_fitted="
+          f"{prior_plain.fitted} labelled_prior_fitted={prior_labelled.fitted}")
+    print(f"[guardian][log_reader] jam late={late_jam:.3f} > early="
+          f"{early_jam:.3f}; prior near={near:.3f} far={far:.3f}")
+    print(f"[guardian] wrote out/guardian/log_reader.csv")
     return 0
 
 

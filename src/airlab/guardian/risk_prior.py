@@ -54,6 +54,14 @@ class RiskPriorModel:
         arr = np.asarray(samples, dtype=float).reshape(-1, 3) if not all(
             hasattr(s, "dist_m") for s in samples) else np.array(
             [[s.dist_m, s.jam, s.label] for s in samples], dtype=float)
+        # Only rows with finite features + a finite label are usable for
+        # supervised calibration.  An unlabelled log (e.g. PX4 output with no
+        # ground-truth risk label) therefore cannot poison the prior.
+        finite = np.all(np.isfinite(arr), axis=1)
+        if not finite.any():
+            self.fitted = False
+            return self
+        arr = arr[finite]
         self._dist = np.clip(arr[:, 0], 0.0, 12.0)
         self._jam = np.clip(arr[:, 1], 0.0, 1.0)
         self._label = np.clip(arr[:, 2], 0.0, 1.0)
