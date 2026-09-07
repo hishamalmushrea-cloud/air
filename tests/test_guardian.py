@@ -1,5 +1,6 @@
 """Unit tests for the Nexus-Predator defensive AI core."""
 
+import os
 import unittest
 
 import numpy as np
@@ -280,6 +281,45 @@ class TestThermal(unittest.TestCase):
         self.assertIsInstance(th, PartThermalModel)
         temps = th.temperatures()
         self.assertTrue({"cpu_npu", "esc", "motor", "battery"} <= set(temps))
+
+
+class TestDataPipeline(unittest.TestCase):
+    def test_pipeline_records_reproducible_dataset(self):
+        from airlab.guardian import (DataPipeline, RiskTelemetryDataset,
+                                     TelemetryDataset)
+        from airlab.simulator import Simulator, SimConfig
+        cfg = SimConfig()
+        cfg.duration = 2.0
+        cfg.guardian_data_pipeline = True
+        cfg.guardian_health_enabled = True
+        cfg.guardian_data_obstacles = [
+            ([2.0, 0.0, -2.0], [0.0, 0.0, 0.0], 1.0),
+        ]
+        cfg.guardian_data_jamming = [[1.0, 0.0, -2.0]]
+        sim = Simulator(cfg)
+        sim.run()
+        self.assertIsNotNone(sim.guardian_pipeline)
+        ds = sim.guardian_pipeline.dataset
+        self.assertGreater(len(ds), 100)
+        self.assertIn("pos_n", ds.rows[0])
+        self.assertIn("cpu_npu_c", ds.rows[0])
+        self.assertGreater(len(sim.guardian_pipeline.risk.samples), 100)
+        # write + read back reproduction
+        path = "out/guardian/telemetry_test.csv"
+        ds.to_csv(path)
+        self.assertTrue(os.path.exists(path))
+
+    def test_risk_dataset_fits_real_prior(self):
+        from airlab.guardian import RiskTelemetryDataset, RiskPriorModel
+        ds = RiskTelemetryDataset()
+        for i in range(50):
+            ds.add(1.0 + i * 0.2, 0.5 if i % 2 else 0.0, 0.8 - i * 0.01)
+        prior = ds.fit_prior(RiskPriorModel())
+        self.assertTrue(prior.fitted)
+        self.assertEqual(prior.summary()["n"], 50)
+        near = float(prior.predict(np.array([1.0]), np.array([0.0]))[0])
+        far = float(prior.predict(np.array([10.0]), np.array([0.0]))[0])
+        self.assertGreater(near, far)
 
 
 class TestRiskPrior(unittest.TestCase):

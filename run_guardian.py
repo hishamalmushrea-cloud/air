@@ -334,6 +334,46 @@ def main() -> int:
     print(f"[guardian][thermal] baseline = {lo_t.summary()}")
     print(f"[guardian][thermal] full_load = {hi_t.summary()}")
     print(f"[guardian] wrote out/guardian/thermal.csv")
+
+    # Telemetry data pipeline (priority #5): record a real flight into a
+    # reproducible dataset, then fit the learned risk prior on it.
+    from airlab.guardian import RiskPriorModel
+    cfg = SimConfig()
+    cfg.duration = 5.0
+    cfg.cruise_speed = 2.0
+    cfg.guardian_data_pipeline = True
+    cfg.guardian_health_enabled = True
+    cfg.guardian_data_obstacles = [
+        ([4.0, 0.0, -2.0], [0.0, 0.0, 0.0], 1.5),
+    ]
+    cfg.guardian_data_jamming = [[1.0, 0.0, -2.0]]
+    sim = Simulator(cfg)
+    sim.run()
+    pipe = sim.guardian_pipeline
+    pipe.dataset.to_csv("out/guardian/telemetry.csv")
+    prior = pipe.risk.fit_prior(RiskPriorModel())
+    arr = pipe.risk.as_array()
+    near = float(prior.predict(np.array([0.5]), np.array([0.0]))[0])
+    far = float(prior.predict(np.array([10.0]), np.array([0.0]))[0])
+    # query a point inside the recorded jamming corridor that is also near the
+    # obstacle (dist ~3 m from the obstacle, jamming ~0.9)
+    jammed = float(prior.predict(np.array([3.0]), np.array([0.9]))[0])
+    jam_train = float(np.max(arr[:, 1])) if len(arr) else 0.0
+    _write("out/guardian/data_pipeline.csv", [{
+        "dataset_rows": len(pipe.dataset),
+        "risk_samples": len(pipe.risk),
+        "prior_n": int(prior.summary().get("n", 0)),
+        "prior_near": round(near, 4),
+        "prior_far": round(far, 4),
+        "prior_jammed": round(jammed, 4),
+        "train_jam_max": round(jam_train, 4),
+    }])
+    print(f"[guardian][pipeline] recorded {len(pipe.dataset)} rows, "
+          f"{len(pipe.risk)} risk samples -> out/guardian/telemetry.csv")
+    print(f"[guardian][pipeline] prior fitted n={prior.summary().get('n', 0)} "
+          f"near={near:.3f} far={far:.3f} jammed={jammed:.3f} "
+          f"(train_jam_max={jam_train:.3f})")
+    print(f"[guardian] wrote out/guardian/data_pipeline.csv")
     return 0
 
 

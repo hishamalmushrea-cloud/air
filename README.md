@@ -192,10 +192,16 @@ the remote/attack surface is intentionally defensive only (no weapons/targeting)
    31.1 °C); full load (45 °C, 1.0 load) cpu_npu **warn** 52.9 °C and battery
    **critical** 45.9 °C — predicts which part hits its budget before it does
    (`docs/research-brief-28.md`).
-8. **Next (priority #5)** a real data pipeline (record simulator telemetry →
-   dataset) so the learned prior and thermal constants are calibrated on
-   recorded data, then thermal-aware mission budget, then the neuromorphic/edge
-   energy and perception path.
+8. **Telemetry data pipeline (implemented).**
+   `DataPipeline` records a live `Simulator` into a reproducible
+   `TelemetryDataset` (CSV schema with timestamps, fused pos/vel, power,
+   battery, per-node temps, threat residuals) and a `RiskTelemetryDataset`
+   `(dist, jam, label)` that can directly `fit_prior(...)` the learned risk
+   prior.  Demo: 500 recorded rows/risk samples; prior fitted near=0.387,
+   far=0.000, jamming=0.692 (`docs/research-brief-29.md`).
+9. **Next** thermal-aware mission budget, then a real log reader (actual
+   PX4/ROS telemetry → dataset), then the neuromorphic/edge energy and
+   perception path.
 
 ---
 

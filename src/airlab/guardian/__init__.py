@@ -27,6 +27,8 @@ from .health import HealthScore, SubsystemHealth, HealthPrognosis, simulated_fea
 from .sim_bridge import MissionReplanBridge, BridgeConfig, BridgeHistory
 from .telemetry_health import TelemetryHealthBridge
 from .thermal import PartThermalModel, ThermalNode
+from .pipeline import (DataPipeline, TelemetryDataset, RiskTelemetryDataset,
+                       _telemetry_row)
 
 __all__ = [
     "GuardianState",
@@ -56,4 +58,8 @@ __all__ = [
     "TelemetryHealthBridge",
     "PartThermalModel",
     "ThermalNode",
+    "DataPipeline",
+    "TelemetryDataset",
+    "RiskTelemetryDataset",
+    "_telemetry_row",
 ]

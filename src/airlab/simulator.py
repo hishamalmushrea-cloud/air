@@ -26,6 +26,7 @@ from .factorgraph import SlidingFactorGraph, build_keyframe, ImuPreintegrator
 from .trust import FrameTrustLearner
 from .guardian.sim_bridge import MissionReplanBridge, BridgeConfig
 from .guardian.telemetry_health import TelemetryHealthBridge
+from .guardian.pipeline import DataPipeline
 
 
 def _cone_bearing(axis: np.ndarray, a_rad: float, b_rad: float) -> np.ndarray:
@@ -206,6 +207,11 @@ class SimConfig:
         # Edge compute load fraction for the part-level thermal model
         # (0..1; 0.3 = baseline, 1.0 = full edge/NPU inference).
         self.compute_frac = 0.30
+        # Telemetry data pipeline: record real fused telemetry + risk samples
+        # every frame while the flight runs (priority #5).
+        self.guardian_data_pipeline = False
+        self.guardian_data_obstacles: list = []
+        self.guardian_data_jamming: list = []
 
 
 class SimRun:
@@ -336,6 +342,11 @@ class Simulator:
         if self.cfg.guardian_health_enabled:
             self.guardian_health_bridge = TelemetryHealthBridge(
                 self, **self.cfg.guardian_health_kwargs)
+        # Telemetry data pipeline (priority #5): records the fused flight +
+        # a labelled risk sample each control step.
+        self.guardian_pipeline: DataPipeline | None = None
+        if self.cfg.guardian_data_pipeline:
+            self.guardian_pipeline = DataPipeline(self)
         self.rng = np.random.default_rng(self.cfg.seed)
         self.time = 0.0
         self.last_imu = None
@@ -575,6 +586,17 @@ class Simulator:
         kwargs = dict(cfg.vehicle_kwargs)
         kwargs.setdefault("motor_efficiency", float(cfg.motor_efficiency))
         return Quadrotor(**kwargs)
+
+    def _data_obstacles(self):
+        from .guardian.sim_bridge import _norm_obs
+        return [_norm_obs(o) for o in self.cfg.guardian_data_obstacles]
+
+    def _data_risk_field(self, bounds):
+        from .guardian.risk import RiskWorldModel
+        from .guardian.sim_bridge import _norm_obs
+        return RiskWorldModel().build(
+            bounds, [_norm_obs(o) for o in self.cfg.guardian_data_obstacles],
+            self.cfg.guardian_data_jamming)
 
     def _make_sensors(self, cfg: SimConfig) -> SensorSuite:
         return SensorSuite(**cfg.sensor_kwargs)
@@ -826,6 +848,24 @@ class Simulator:
             # ---- guardian predictive-maintenance health ----
             if self.guardian_health_bridge is not None:
                 self.guardian_health_bridge.step(dt)
+
+            # ---- guardian telemetry data pipeline (priority #5) ----
+            if self.guardian_pipeline is not None:
+                if self.cfg.guardian_data_obstacles:
+                    obs = self._data_obstacles()
+                    pts = [self.ekf.pos] + [np.asarray(o.pos) for o in obs]
+                    pts = np.asarray(pts)
+                    margin = 8.0
+                    bounds = (pts[:, 0].min() - margin, pts[:, 0].max() + margin,
+                              pts[:, 1].min() - margin, pts[:, 1].max() + margin,
+                              pts[:, 2].min() - margin, pts[:, 2].max() + margin)
+                    rfield = self._data_risk_field(bounds)
+                else:
+                    obs, rfield = [], None
+                self.guardian_pipeline.record(
+                    dt, obstacles=obs,
+                    jamming_centers=self.cfg.guardian_data_jamming,
+                    risk_field=rfield)
 
             # ---- sensor housekeeping + sampling based on schedules ----
             self.sensors.step(dt)

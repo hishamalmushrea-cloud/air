@@ -86,7 +86,7 @@ sensors → fusion EKF → controller → dynamics
 | High | Learned risk prior from flight/jam telemetry | **✅ done (brief-27)** |
 | High | GCS telemetry + health dashboard | near future |
 | Medium | Thermal model (CPU/ESC/motor/battery) | **✅ done (brief-28)** |
-| Medium | Data pipeline (edge → storage → analytics) | **NEXT → priority #5** |
+| Medium | Data pipeline (edge → storage → analytics) | **✅ done (brief-29)** |
 | Medium | Motor/ESC/prop system model (thrust/power/temp) | RESEARCH |
 | Experimental | Neuromorphic SNN planner @ ~847 GOp/s/W class | LONG TERM |
 | Experimental | Swarm split-risk graph | LONG TERM |
@@ -113,8 +113,10 @@ sensors → fusion EKF → controller → dynamics
   (`RiskPriorModel` kernel regression; `RiskWorldModel` learned severity).
 - **G7**: part-level low-watt thermal model (`PartThermalModel`;
   cpu_npu / esc / motor / battery + frame network).
-- **G8 (next)**: real data pipeline for recorded telemetry, then
-  thermal-aware mission budget, then perception path.
+- **G8**: real data pipeline for recorded simulator telemetry
+  (`DataPipeline`, `TelemetryDataset`, `RiskTelemetryDataset.fit_prior`).
+- **G9 (next)**: thermal-aware mission budget; then real log reader for
+  PX4/ROS telemetry; then perception path (sensed obstacles).
 
 ## 8. Engineering Decision Log (current entries)
 
