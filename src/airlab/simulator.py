@@ -189,6 +189,10 @@ class SimConfig:
         self.guardian_max_extra_frac = 0.50
         self.guardian_replan_thermal_aware = False
         self.guardian_replan_thermal_ambient_c = 25.0
+        # Priority #8: when true, the bridge feeds the live thermal node temps
+        # into the planner (from the health bridge's PartThermalModel) instead
+        # of starting at ambient.
+        self.guardian_replan_use_live_thermal = False
         self.guardian_replan_kwargs: dict = {}
 
         # Guardian health bridge inputs (priority #2): the health engine now
@@ -814,6 +818,14 @@ class Simulator:
                         self._battery_frac(),
                         self.time,
                     )
+                    if self.cfg.guardian_replan_use_live_thermal:
+                        # Feed the live thermal state (priority #8) so the
+                        # feasibility prediction starts from where the
+                        # aircraft is, not from ambient.
+                        live_temps = {}
+                        if self.guardian_health_bridge is not None:
+                            live_temps = self.guardian_health_bridge.thermal.temperatures()
+                        self.guardian_bridge.config.thermal_initial_temps = live_temps
                     self.guardian_bridge.try_replan(self.time)
             pos_ref, vel_ref, yaw_ref = self.mission.desired(self.ekf.pos, dt)
             pos_ref, vel_ref = self._safety_override(pos_ref, vel_ref, yaw_ref, dec.mode)

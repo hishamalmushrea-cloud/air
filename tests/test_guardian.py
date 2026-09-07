@@ -325,6 +325,46 @@ class TestLogReader(unittest.TestCase):
         self.assertGreater(near, far)
 
 
+class TestDynamicThermal(unittest.TestCase):
+    def test_live_hot_state_rejects_route_that_cool_accepts(self):
+        from airlab.guardian import PredictiveRePlanner
+        import numpy as np
+        route = [np.array([0.0, 0.0, -2.0]), np.array([12.0, 0.0, -2.0])]
+        cool_ambient = PredictiveRePlanner(
+            thermal_aware=True, thermal_ambient_c=25.0,
+            thermal_initial_temps={"cpu_npu": 25.0, "esc": 25.0,
+                                   "motor": 25.0, "battery": 25.0})
+        cool = cool_ambient.plan(route[0], route[1:], battery_frac=1.0)
+        self.assertTrue(cool.thermal_feasible)
+        # A live hot state (a node at/over its own limit) makes the route
+        # infeasible.  Honest physics matters: an over-limit *battery* (max
+        # 45 C) stays over on a short route and must reject, while an
+        # over-limit *edge* (max 55 C) may cool to ~52.6 C and recover at
+        # nominal power, so it is legitimately feasible.
+        hot_battery = PredictiveRePlanner(
+            thermal_aware=True, thermal_ambient_c=25.0,
+            thermal_initial_temps={"cpu_npu": 30.0, "esc": 30.0,
+                                   "motor": 30.0, "battery": 46.0})
+        hot = hot_battery.plan(route[0], route[1:], battery_frac=1.0)
+        self.assertFalse(hot.thermal_feasible)
+        self.assertFalse(hot.feasible)
+        self.assertIn("thermal_infeasible", hot.reasons)
+
+    def test_live_thermal_flows_into_sim_bridge(self):
+        from airlab.guardian import MissionReplanBridge, BridgeConfig
+        from airlab.mission import WaypointMission
+        import numpy as np
+        mission = WaypointMission([(0, 0, 2), (12, 0, 2), (24, 0, 2)], speed=2.0)
+        cfg = BridgeConfig(thermal_aware=True, thermal_ambient_c=25.0,
+                           thermal_initial_temps={"cpu_npu": 52.0})
+        bridge = MissionReplanBridge(mission, np.array([0.0, 0.0, -2.0]),
+                                     config=cfg)
+        # The bridge's planner must carry the configured live initial temps
+        # into its thermal feasibility check, so a hot edge is predicted.
+        self.assertEqual(
+            bridge.planner.thermal_initial_temps.get("cpu_npu"), 52.0)
+
+
 class TestThermalBudget(unittest.TestCase):
     def test_planner_rejects_hot_route(self):
         from airlab.guardian import PredictiveRePlanner

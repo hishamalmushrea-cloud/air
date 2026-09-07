@@ -221,8 +221,16 @@ the remote/attack surface is intentionally defensive only (no weapons/targeting)
     object detected, sparse group rejected; bridge applies route change with
     risk reduction 0.637 and 2.11 m clearance at 8 W
     (`docs/research-brief-32.md`).
-12. **Next** dynamic thermal state in re-planning, then event-camera/RGB
-    perception and the onboard-vs-ground split.
+12. **Dynamic thermal state in re-planning (implemented).**
+    `PredictiveRePlanner` now seeds the thermal model with **live** node
+    temperatures instead of always starting at ambient; `SimConfig.guardian_replan_use_live_thermal`
+    wires the health bridge's temps into the planner.  Fixed a latent bug that
+    compared the max temp to the CPU limit instead of the worst node's own
+    limit.  Demo: cold start feasible; live hot edge cools to 49.1 °C
+    (feasible); live hot battery remains over 45 °C and **rejects**
+    (`docs/research-brief-33.md`).
+13. **Next** event-camera/RGB perception and the onboard-vs-ground compute
+    split.
 
 ---
 

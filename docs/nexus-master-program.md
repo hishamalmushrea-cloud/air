@@ -90,7 +90,8 @@ sensors → fusion EKF → controller → dynamics
 | Medium | Thermal-aware mission budget | **✅ done (brief-30)** |
 | Medium | Real PX4/ROS log reader → dataset | **✅ done (brief-31, adapter validated on simulated PX4-schema fixture)** |
 | High | Low-watt edge perception path (spiking/NeuViT-style) | **✅ done (brief-32, simulated/estimated surrogate)** |
-| Medium | Dynamic thermal state in re-planning | **NEXT → priority #8** |
+| Medium | Dynamic thermal state in re-planning | **✅ done (brief-33)** |
+| High | Event-camera / RGB perception (second sensing path) | **NEXT → priority #9** |
 | Medium | Motor/ESC/prop system model (thrust/power/temp) | RESEARCH |
 | Experimental | Neuromorphic SNN planner @ ~847 GOp/s/W class | LONG TERM |
 | Experimental | Swarm split-risk graph | LONG TERM |
@@ -125,8 +126,9 @@ sensors → fusion EKF → controller → dynamics
   refusal to fit an unlabelled log; validated on simulated PX4-schema fixture).
 - **G11**: low-watt edge perception path (`SpikeVision`; sensed obstacles feed
   the oracle; energy/intelligence-per-watt declared estimate).
-- **G12 (next)**: dynamic thermal state in re-planning; then event-camera/RGB
-  perception; then onboard-vs-ground split.
+- **G12**: dynamic thermal state in re-planning (live node temps seed the
+  planner; fixed worst-node-limit bug).
+- **G13 (next)**: event-camera/RGB perception; then onboard-vs-ground split.
 
 ## 8. Engineering Decision Log (current entries)
 

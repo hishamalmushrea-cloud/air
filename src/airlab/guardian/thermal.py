@@ -60,7 +60,8 @@ class PartThermalModel:
                  edge_power_idle_w: float = 2.0,
                  motor_loss_frac: float = 0.12,
                  esc_loss_frac: float = 0.05,
-                 battery_loss_frac: float = 0.06) -> None:
+                 battery_loss_frac: float = 0.06,
+                 initial_temps: dict[str, float] | None = None) -> None:
         self.ambient_c = float(ambient_c)
         self.frame_conductance_wpk = float(frame_conductance_wpk)
         self.node_frame_conductance_wpk = float(node_frame_conductance_wpk)
@@ -69,19 +70,26 @@ class PartThermalModel:
         self.motor_loss_frac = float(motor_loss_frac)
         self.esc_loss_frac = float(esc_loss_frac)
         self.battery_loss_frac = float(battery_loss_frac)
+        ini = initial_temps or {}
 
         # Compact low-watt edge/NPU + propulsion part-level limits.  The edge
         # module has a small thermal mass and poor spread (lightweight, no
         # active cooling); the motor/ESC are the propulsion hot spots.  These
         # are **modelled-declared** numbers, tune to a specific board.
         self.frame = ThermalNode("frame", 1000.0, 1.8, 80.0,
+                                 temp_c=float(ini.get("frame", ambient_c)),
                                  ambient_c=ambient_c)
         self.cpu_npu = ThermalNode("cpu_npu", 40.0, 0.5, 55.0,
+                                   temp_c=float(ini.get("cpu_npu", ambient_c)),
                                    ambient_c=ambient_c)
-        self.esc = ThermalNode("esc", 120.0, 0.8, 85.0, ambient_c=ambient_c)
+        self.esc = ThermalNode("esc", 120.0, 0.8, 85.0,
+                               temp_c=float(ini.get("esc", ambient_c)),
+                               ambient_c=ambient_c)
         self.motor = ThermalNode("motor", 200.0, 0.5, 90.0,
+                                 temp_c=float(ini.get("motor", ambient_c)),
                                  ambient_c=ambient_c)
         self.battery = ThermalNode("battery", 900.0, 1.0, 45.0,
+                                   temp_c=float(ini.get("battery", ambient_c)),
                                    ambient_c=ambient_c)
         self.nodes = [self.cpu_npu, self.esc, self.motor, self.battery]
 

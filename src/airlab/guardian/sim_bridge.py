@@ -60,6 +60,10 @@ class BridgeConfig:
     # part over its temperature limit during the remaining mission.
     thermal_aware: bool = False
     thermal_ambient_c: float = 25.0
+    # Live thermal state (priority #8): when a real thermal model is running,
+    # feed its current node temperatures into the planner so the feasibility
+    # prediction starts from where the aircraft is, not from ambient.
+    thermal_initial_temps: dict[str, float] | None = None
 
 
 @dataclass
@@ -87,6 +91,7 @@ class MissionReplanBridge:
             min_clearance=self.config.min_clearance_m,
             thermal_aware=self.config.thermal_aware,
             thermal_ambient_c=self.config.thermal_ambient_c,
+            thermal_initial_temps=self.config.thermal_initial_temps,
         )
         self.obstacles = [_norm_obs(o) for o in (obstacles or [])]
         self.jamming_centers = [np.asarray(c, dtype=float).reshape(3)

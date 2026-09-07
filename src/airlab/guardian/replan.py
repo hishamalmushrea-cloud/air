@@ -50,7 +50,8 @@ class PredictiveRePlanner:
                  energy_reserve_frac: float = 0.15, min_clearance: float = 2.0,
                  sampling_step: float = 0.5,
                  thermal_aware: bool = False,
-                 thermal_ambient_c: float = 25.0) -> None:
+                 thermal_ambient_c: float = 25.0,
+                 thermal_initial_temps: dict[str, float] | None = None) -> None:
         self.model = model or RiskWorldModel()
         self.beam = beam
         self.lateral_offsets = lateral_offsets
@@ -65,9 +66,12 @@ class PredictiveRePlanner:
         # checks that the replanned route keeps every thermal node (cpu_npu /
         # esc / motor / battery) under its limit over the flight time (energy
         # alone is not enough — a hot compute/ESC/motor can still force an
-        # abort).  The model is simulated fresh each call.
+        # abort).  The model is simulated fresh each call, but it may be seeded
+        # with the *current live* node temperatures so the prediction is not
+        # restarted at ambient (priority #8).
         self.thermal_aware = bool(thermal_aware)
         self.thermal_ambient_c = float(thermal_ambient_c)
+        self.thermal_initial_temps = dict(thermal_initial_temps or {})
 
     def plan(self, start: np.ndarray, remaining: list[np.ndarray],
              battery_frac: float, obstacles=None,
@@ -169,7 +173,8 @@ class PredictiveRePlanner:
         # the same part constants (importing the class directly) so repeated
         # calls never carry heat from a previous planning cycle.
         from .thermal import PartThermalModel
-        model = PartThermalModel(ambient_c=self.thermal_ambient_c)
+        model = PartThermalModel(ambient_c=self.thermal_ambient_c,
+                                 initial_temps=self.thermal_initial_temps)
         t_total = max(0.1, self.route_length(route) / max(self.cruise_speed, 0.1))
         power = self.hover_power_w
         steps = max(1, int(min(t_total, 7200.0) / 0.5))
@@ -181,8 +186,11 @@ class PredictiveRePlanner:
         max_t = model.max_temp()
         node = next((n for n in model.nodes if n.name == worst), None)
         margin = node.margin_c if node is not None else float("inf")
-        first = model.nodes[0]
-        return max_t < first.max_temp_c, max_t, worst, margin
+        # A node is feasible only if it stays under its OWN limit, not under a
+        # single fixed reference (the edge and battery have very different
+        # limits).
+        worst_limit = node.max_temp_c if node is not None else 0.0
+        return max_t < worst_limit, max_t, worst, margin
 
     @staticmethod
     def route_length(route) -> float:

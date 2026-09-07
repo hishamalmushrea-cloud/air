@@ -494,6 +494,60 @@ def main() -> int:
           f"risk_reduction={p_res.risk_reduction if p_res else 0.0:.3f} "
           f"clearance={p_res.min_clearance_m if p_res else 0.0:.2f}m")
     print(f"[guardian] wrote out/guardian/perception.csv")
+
+    # Dynamic thermal state in re-planning (priority #8).  Instead of always
+    # restarting the thermal model at ambient, feed the model the *live*
+    # node temperatures.  Demo: a flight that has already heated the edge/NPU,
+    # then ask the planner whether the remaining route is thermally feasible.
+    live_state = {"cpu_npu": 52.0, "esc": 30.0, "motor": 31.0, "battery": 25.9}
+    from airlab.guardian import PredictiveRePlanner as LiveThermPlanner
+    cold = LiveThermPlanner(thermal_aware=True, thermal_ambient_c=25.0,
+                            cruise_speed=3.0, hover_power_w=112.0,
+                            battery_capacity_wh=71.0).plan(
+        np.array([0, 0, -2.0]), [np.array([12, 0, -2.0])], battery_frac=1.0)
+    hot_edge = LiveThermPlanner(thermal_aware=True, thermal_ambient_c=25.0,
+                                thermal_initial_temps=live_state,
+                                cruise_speed=3.0, hover_power_w=112.0,
+                                battery_capacity_wh=71.0).plan(
+        np.array([0, 0, -2.0]), [np.array([12, 0, -2.0])], battery_frac=1.0)
+    # A battery-only-hot live state: the edge is cool, so the (over-limit)
+    # battery is the worst node and the same route must be rejected.
+    live_battery = {"cpu_npu": 30.0, "esc": 30.0, "motor": 31.0,
+                    "battery": 46.0}
+    hot_batt = LiveThermPlanner(thermal_aware=True, thermal_ambient_c=25.0,
+                                thermal_initial_temps=live_battery,
+                                cruise_speed=3.0, hover_power_w=112.0,
+                                battery_capacity_wh=71.0).plan(
+        np.array([0, 0, -2.0]), [np.array([12, 0, -2.0])], battery_frac=1.0)
+    _write("out/guardian/dynamic_thermal.csv", [
+        {"case": "cold_start", "thermal_feasible": int(cold.thermal_feasible),
+         "max_temp_c": round(float(cold.thermal_max_c), 2),
+         "worst_node": cold.thermal_worst_node,
+         "margin_c": round(float(cold.thermal_margin_c), 2),
+         "feasible": int(cold.feasible)},
+        {"case": "live_hot_edge", "thermal_feasible": int(hot_edge.thermal_feasible),
+         "max_temp_c": round(float(hot_edge.thermal_max_c), 2),
+         "worst_node": hot_edge.thermal_worst_node,
+         "margin_c": round(float(hot_edge.thermal_margin_c), 2),
+         "feasible": int(hot_edge.feasible)},
+        {"case": "live_hot_battery", "thermal_feasible": int(hot_batt.thermal_feasible),
+         "max_temp_c": round(float(hot_batt.thermal_max_c), 2),
+         "worst_node": hot_batt.thermal_worst_node,
+         "margin_c": round(float(hot_batt.thermal_margin_c), 2),
+         "feasible": int(hot_batt.feasible)},
+    ])
+    print(f"[guardian][dynamic_thermal] cold_start feasible="
+          f"{cold.feasible} worst={cold.thermal_worst_node} "
+          f"max={cold.thermal_max_c:.1f}C")
+    print(f"[guardian][dynamic_thermal] live_hot_edge feasible="
+          f"{hot_edge.feasible} worst={hot_edge.thermal_worst_node} "
+          f"max={hot_edge.thermal_max_c:.1f}C "
+          f"margin={hot_edge.thermal_margin_c:.1f}C")
+    print(f"[guardian][dynamic_thermal] live_hot_battery feasible="
+          f"{hot_batt.feasible} worst={hot_batt.thermal_worst_node} "
+          f"max={hot_batt.thermal_max_c:.1f}C "
+          f"margin={hot_batt.thermal_margin_c:.1f}C")
+    print(f"[guardian] wrote out/guardian/dynamic_thermal.csv")
     return 0
 
 
