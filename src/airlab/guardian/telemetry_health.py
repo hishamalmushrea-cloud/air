@@ -19,30 +19,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from .health import SubsystemHealth, HealthPrognosis
-
-
-@dataclass
-class ThermalState:
-    """First-order lumped thermal model driven by real power draw.
-
-    This is a *model*, not a measurement: it gives the health engine a
-    physically consistent temperature from the platform's actual power budget.
-    Parameters follow a small 500 g-class edge compute + payload stack; the
-    units are W, J/K, and 1/s.
-    """
-
-    ambient_c: float = 25.0
-    capacitance_jpk: float = 1200.0      # J/K lumped thermal mass
-    thermal_conductance_wpk: float = 2.2  # W/K to ambient
-    power_idle_w: float = 6.0            # edge + avionics baseline
-    temp_c: float = 25.0
-
-    def step(self, power_w: float, dt: float) -> float:
-        p = float(power_w) + self.power_idle_w
-        # dT = (Q_in - Q_out)/C ; Q_out = k*(T - T_amb)
-        q = p - self.thermal_conductance_wpk * (self.temp_c - self.ambient_c)
-        self.temp_c += float(q) / self.capacitance_jpk * dt
-        return self.temp_c
+from .thermal import PartThermalModel
 
 
 class TelemetryHealthBridge:
@@ -50,12 +27,12 @@ class TelemetryHealthBridge:
 
     def __init__(self, sim, health: SubsystemHealth | None = None,
                  prognosis: HealthPrognosis | None = None,
-                 thermal: ThermalState | None = None,
+                 thermal: PartThermalModel | None = None,
                  warmup_samples: int = 200) -> None:
         self.sim = sim
         self.health = health or SubsystemHealth(warmup_samples=warmup_samples)
         self.prognosis = prognosis or HealthPrognosis()
-        self.thermal = thermal or ThermalState(
+        self.thermal = thermal or PartThermalModel(
             ambient_c=float(sim.cfg.thermal_ambient_c))
         self._prev_est_vel = None
         self._vib_ema = 0.0
@@ -73,7 +50,13 @@ class TelemetryHealthBridge:
         motor_resid = self._motor_residual(sim, dt)
         gps_disagree = self._gps_disagree(sim)
         flow_disagree = float(sim._last_flow_mismatch)
-        temp_c = self.thermal.step(sim.last_control[0], dt)
+        throttle_power_w = float(getattr(sim, "power_model", None).power(
+            float(sim.last_control[0])) if getattr(sim, "power_model", None)
+            else 0.0)
+        compute_frac = self._compute_frac(sim)
+        node_temps = self.thermal.step(throttle_power_w, dt,
+                                       compute_frac=compute_frac)
+        temp_c = float(max(node_temps.values()))
         vib = self._vibration(sim, dt)
         self.health.update(battery_frac, motor_resid, temp_c, vib,
                            gps_disagree, flow_disagree)
@@ -82,12 +65,29 @@ class TelemetryHealthBridge:
             "battery_frac": battery_frac,
             "motor_resid": motor_resid,
             "temp_c": temp_c,
+            "compute_frac": compute_frac,
+            "throttle_power_w": throttle_power_w,
+            "node_temps": node_temps,
             "vib": vib,
             "gps_disagree": gps_disagree,
             "flow_disagree": flow_disagree,
             "health": agg,
         })
         return agg
+
+    def _compute_frac(self, sim) -> float:
+        """Compute load fraction from the configured edge/guardian activity.
+
+        The edge/NPU already has an explicit platform number
+        (``NexusSpec.compute_topps``); here we keep a simple deterministic
+        mapping: base load plus a spike when the guardian is actively
+        re-planning (the most compute-intensive guardian task).
+        """
+        frac = getattr(sim.cfg, "compute_frac", 0.30)
+        bridge = getattr(sim, "guardian_bridge", None)
+        if bridge is not None and getattr(bridge, "applied", False):
+            frac = min(1.0, frac + 0.20)
+        return float(np.clip(frac, 0.0, 1.0))
 
     def _motor_residual(self, sim, dt: float) -> float:
         """Throttle-efficiency observable: how much of the *commanded* thrust

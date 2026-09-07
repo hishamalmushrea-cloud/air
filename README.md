@@ -185,9 +185,17 @@ the remote/attack surface is intentionally defensive only (no weapons/targeting)
    reduces risk 0.835 → 0.053, clearance 6.16 m
    (`docs/research-brief-27.md`).  Reference telemetry is **simulated**
    (honest limit; model is data-agnostic).
-7. **Next (priority #4/#5)** part-level low-watt thermal model, then a real
-   data pipeline so the learned prior uses recorded flight telemetry, then the
-   neuromorphic/edge energy and perception path.
+7. **Part-level low-watt thermal model (implemented).**
+   `PartThermalModel` is a transparent thermal network (cpu_npu / esc / motor /
+   battery / frame) with heat inputs from real flight power + `compute_frac`.
+   Demo (120 s flight): baseline (25 °C, 0.30 load) all ok (motor hottest
+   31.1 °C); full load (45 °C, 1.0 load) cpu_npu **warn** 52.9 °C and battery
+   **critical** 45.9 °C — predicts which part hits its budget before it does
+   (`docs/research-brief-28.md`).
+8. **Next (priority #5)** a real data pipeline (record simulator telemetry →
+   dataset) so the learned prior and thermal constants are calibrated on
+   recorded data, then thermal-aware mission budget, then the neuromorphic/edge
+   energy and perception path.
 
 ---
 

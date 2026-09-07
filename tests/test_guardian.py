@@ -239,6 +239,49 @@ class TestSimBridge(unittest.TestCase):
         self.assertEqual(len(lands), 0)
 
 
+class TestThermal(unittest.TestCase):
+    def test_part_model_heats_more_under_load(self):
+        from airlab.guardian import PartThermalModel
+        model = PartThermalModel(ambient_c=25.0)
+        for _ in range(500):
+            model.step(120.0, 0.01, compute_frac=0.3)
+        base = model.max_temp()
+        model2 = PartThermalModel(ambient_c=25.0)
+        for _ in range(500):
+            model2.step(120.0, 0.01, compute_frac=1.0)
+        high = model2.max_temp()
+        self.assertGreater(high, base)
+        self.assertGreater(model2.temperatures()["cpu_npu"],
+                           model.temperatures()["cpu_npu"])
+        # part-level: the hot node must be exposed, not a single lumped number
+        self.assertIn(model2.worst_node(), {"cpu_npu", "esc", "motor", "battery"})
+
+    def test_part_model_respects_node_specific_limits(self):
+        from airlab.guardian import PartThermalModel
+        model = PartThermalModel(ambient_c=25.0)
+        # run a hot mission; node margins are exposed and no node should ever
+        # go arbitrarily unbounded (it should be slower than the frame).
+        for _ in range(1000):
+            model.step(200.0, 0.01, compute_frac=1.0)
+        margins = model.margins()
+        for name, margin in margins.items():
+            self.assertGreaterEqual(margin, -1e-9)
+        self.assertTrue(model.battery.max_temp_c < model.motor.max_temp_c)
+
+    def test_telemetry_health_uses_part_model(self):
+        from airlab.guardian import PartThermalModel
+        from airlab.simulator import Simulator, SimConfig
+        cfg = SimConfig()
+        cfg.duration = 8.0
+        cfg.guardian_health_enabled = True
+        sim = Simulator(cfg)
+        sim.run()
+        th = sim.guardian_health_bridge.thermal
+        self.assertIsInstance(th, PartThermalModel)
+        temps = th.temperatures()
+        self.assertTrue({"cpu_npu", "esc", "motor", "battery"} <= set(temps))
+
+
 class TestRiskPrior(unittest.TestCase):
     def test_prior_learns_near_obstacle_is_riskier(self):
         from airlab.guardian import RiskPriorModel, simulate_telemetry

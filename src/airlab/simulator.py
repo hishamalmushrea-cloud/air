@@ -203,6 +203,9 @@ class SimConfig:
         self.guardian_health_enabled = False
         self.guardian_health_kwargs: dict = {}
         self.thermal_ambient_c = 25.0
+        # Edge compute load fraction for the part-level thermal model
+        # (0..1; 0.3 = baseline, 1.0 = full edge/NPU inference).
+        self.compute_frac = 0.30
 
 
 class SimRun:

@@ -298,6 +298,42 @@ def main() -> int:
           f"{healthy_sim.guardian_health_bridge.prognosis.history[-1]:.3f} "
           f"degraded={hb.prognosis.history[-1]:.3f}")
     print(f"[guardian] wrote out/guardian/telemetry_health.csv")
+
+    # Part-level low-watt thermal model (priority #4).  Fly the same stack
+    # twice: baseline edge load (0.30) vs full edge/NPU load (1.0), and show
+    # which *part* heats first (cpu_npu, esc, motor, battery) rather than a
+    # single lumped temperature.
+    def _run_thermal(compute_frac, ambient_c=25.0):
+        cfg = SimConfig()
+        cfg.duration = 120.0
+        cfg.cruise_speed = 2.0
+        cfg.compute_frac = compute_frac
+        cfg.thermal_ambient_c = ambient_c
+        cfg.guardian_health_enabled = True
+        sim = Simulator(cfg)
+        sim.run()
+        return sim
+
+    low = _run_thermal(0.30, ambient_c=25.0)
+    high = _run_thermal(1.0, ambient_c=45.0)
+    lo_t = low.guardian_health_bridge.thermal
+    hi_t = high.guardian_health_bridge.thermal
+    rows_thermal = []
+    for name in lo_t.temperatures():
+        rows_thermal.append({
+            "run": "baseline", "node": name,
+            "temp_c": round(float(lo_t.temperatures()[name]), 2),
+            "status": lo_t.status()[name],
+        })
+        rows_thermal.append({
+            "run": "full_load", "node": name,
+            "temp_c": round(float(hi_t.temperatures()[name]), 2),
+            "status": hi_t.status()[name],
+        })
+    _write("out/guardian/thermal.csv", rows_thermal)
+    print(f"[guardian][thermal] baseline = {lo_t.summary()}")
+    print(f"[guardian][thermal] full_load = {hi_t.summary()}")
+    print(f"[guardian] wrote out/guardian/thermal.csv")
     return 0
 
 

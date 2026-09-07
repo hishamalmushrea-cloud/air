@@ -85,7 +85,7 @@ sensors → fusion EKF → controller → dynamics
 | High | Feed health engine real simulator telemetry | **✅ done (brief-26)** |
 | High | Learned risk prior from flight/jam telemetry | **✅ done (brief-27)** |
 | High | GCS telemetry + health dashboard | near future |
-| Medium | Thermal model (CPU/ESC/motor/battery) | **NEXT → priority #4** |
+| Medium | Thermal model (CPU/ESC/motor/battery) | **✅ done (brief-28)** |
 | Medium | Data pipeline (edge → storage → analytics) | **NEXT → priority #5** |
 | Medium | Motor/ESC/prop system model (thrust/power/temp) | RESEARCH |
 | Experimental | Neuromorphic SNN planner @ ~847 GOp/s/W class | LONG TERM |
@@ -99,7 +99,7 @@ sensors → fusion EKF → controller → dynamics
 - #4 Thermal model **36**
 - #5 Neuromorphic SNN / NeuViT perception **33** (highest innovation, long-term).
 
-## 7. Generation log (G0 → G6)
+## 7. Generation log (G0 → G7)
 - **G0**: baseline stack (dynamics/EKF/controller/safety FSM).
 - **G1**: independent landmark + factor-graph detectors; bias.25 crash → 0.
 - **G2**: learned frame trust + adaptive_veto_trust; degenerate-parallax &
@@ -111,7 +111,10 @@ sensors → fusion EKF → controller → dynamics
   (`TelemetryHealthBridge`, physical mid-flight motor degradation).
 - **G6**: learned risk prior from simulated flight/jam telemetry
   (`RiskPriorModel` kernel regression; `RiskWorldModel` learned severity).
-- **G7 (next)**: part-level low-watt thermal model; then real data pipeline.
+- **G7**: part-level low-watt thermal model (`PartThermalModel`;
+  cpu_npu / esc / motor / battery + frame network).
+- **G8 (next)**: real data pipeline for recorded telemetry, then
+  thermal-aware mission budget, then perception path.
 
 ## 8. Engineering Decision Log (current entries)
 
