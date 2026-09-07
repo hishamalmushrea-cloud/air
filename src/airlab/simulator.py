@@ -187,6 +187,8 @@ class SimConfig:
         self.guardian_min_risk_reduction = 0.02
         self.guardian_min_clearance_m = 2.0
         self.guardian_max_extra_frac = 0.50
+        self.guardian_replan_thermal_aware = False
+        self.guardian_replan_thermal_ambient_c = 25.0
         self.guardian_replan_kwargs: dict = {}
 
         # Guardian health bridge inputs (priority #2): the health engine now
@@ -333,6 +335,8 @@ class Simulator:
                     min_risk_reduction=self.cfg.guardian_min_risk_reduction,
                     min_clearance_m=self.cfg.guardian_min_clearance_m,
                     max_extra_distance_frac=self.cfg.guardian_max_extra_frac,
+                    thermal_aware=self.cfg.guardian_replan_thermal_aware,
+                    thermal_ambient_c=self.cfg.guardian_replan_thermal_ambient_c,
                     **self.cfg.guardian_replan_kwargs,
                 ),
             )

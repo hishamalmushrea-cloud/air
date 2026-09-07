@@ -199,9 +199,15 @@ the remote/attack surface is intentionally defensive only (no weapons/targeting)
    `(dist, jam, label)` that can directly `fit_prior(...)` the learned risk
    prior.  Demo: 500 recorded rows/risk samples; prior fitted near=0.387,
    far=0.000, jamming=0.692 (`docs/research-brief-29.md`).
-9. **Next** thermal-aware mission budget, then a real log reader (actual
-   PX4/ROS telemetry → dataset), then the neuromorphic/edge energy and
-   perception path.
+9. **Thermal-aware mission budget (implemented).**
+   `PredictiveRePlanner` now also checks a part-level thermal envelope: it
+   simulates the replanned route at cruise power and refuses it if any node
+   (cpu_npu/esc/motor/battery) exceeds its limit, even when energy is fine.
+   Demo: cool 25 °C → feasible (worst cpu_npu 25.4 °C, margin +29.6 °C); hot
+   90 °C → rejected (cpu_npu 90.4 °C, margin −35.4 °C)
+   (`docs/research-brief-30.md`).
+10. **Next** a real log reader (actual PX4/ROS telemetry → dataset), then the
+    neuromorphic/edge energy and perception path.
 
 ---
 

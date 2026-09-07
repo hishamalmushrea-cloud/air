@@ -56,6 +56,10 @@ class BridgeConfig:
     energy_reserve_frac: float = 0.15
     hover_power_w: float = 112.0
     cruise_speed: float = 3.0
+    # Thermal-aware feasibility: reject a replanned route that would push any
+    # part over its temperature limit during the remaining mission.
+    thermal_aware: bool = False
+    thermal_ambient_c: float = 25.0
 
 
 @dataclass
@@ -81,6 +85,8 @@ class MissionReplanBridge:
             battery_capacity_wh=self.config.battery_capacity_wh,
             energy_reserve_frac=self.config.energy_reserve_frac,
             min_clearance=self.config.min_clearance_m,
+            thermal_aware=self.config.thermal_aware,
+            thermal_ambient_c=self.config.thermal_ambient_c,
         )
         self.obstacles = [_norm_obs(o) for o in (obstacles or [])]
         self.jamming_centers = [np.asarray(c, dtype=float).reshape(3)
@@ -147,4 +153,6 @@ class MissionReplanBridge:
             "repl_risk": float(res.repl_risk),
             "extra_frac": float(res.extra_distance_frac),
             "clearance_m": float(res.min_clearance_m),
+            "thermal_feasible": int(bool(res.thermal_feasible)),
+            "thermal_max_c": float(res.thermal_max_c),
         })

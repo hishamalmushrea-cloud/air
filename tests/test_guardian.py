@@ -240,6 +240,33 @@ class TestSimBridge(unittest.TestCase):
         self.assertEqual(len(lands), 0)
 
 
+class TestThermalBudget(unittest.TestCase):
+    def test_planner_rejects_hot_route(self):
+        from airlab.guardian import PredictiveRePlanner
+        import numpy as np
+        planner = PredictiveRePlanner(thermal_aware=True, thermal_ambient_c=90.0,
+                                      cruise_speed=3.0, hover_power_w=112.0,
+                                      battery_capacity_wh=71.0)
+        res = planner.plan(np.array([0.0, 0.0, -2.0]),
+                           [np.array([12.0, 0.0, -2.0])], battery_frac=1.0)
+        self.assertFalse(res.thermal_feasible)
+        self.assertFalse(res.feasible)
+        self.assertIn("thermal_infeasible", res.reasons)
+
+    def test_planner_accepts_cool_route(self):
+        from airlab.guardian import PredictiveRePlanner
+        import numpy as np
+        planner = PredictiveRePlanner(thermal_aware=True, thermal_ambient_c=25.0,
+                                      cruise_speed=3.0, hover_power_w=112.0,
+                                      battery_capacity_wh=71.0)
+        res = planner.plan(np.array([0.0, 0.0, -2.0]),
+                           [np.array([12.0, 0.0, -2.0])], battery_frac=1.0)
+        self.assertTrue(res.thermal_feasible)
+        self.assertTrue(res.feasible)
+        self.assertNotIn("thermal_infeasible", res.reasons)
+        self.assertEqual(res.thermal_worst_node, "cpu_npu")
+
+
 class TestThermal(unittest.TestCase):
     def test_part_model_heats_more_under_load(self):
         from airlab.guardian import PartThermalModel

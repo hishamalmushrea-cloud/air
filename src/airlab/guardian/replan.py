@@ -33,6 +33,12 @@ class ReplanResult:
     energy_heavy_required: float     # fraction of battery the replanned route needs
     feasible: bool
     min_clearance_m: float
+    # Thermal-aware feasibility (brief-30): whether the replanned route keeps
+    # every thermal node (cpu_npu / esc / motor / battery) under its limit.
+    thermal_feasible: bool = True
+    thermal_max_c: float = 0.0
+    thermal_worst_node: str = ""
+    thermal_margin_c: float = float("inf")
     reasons: list[str] = field(default_factory=list)
 
 
@@ -42,7 +48,9 @@ class PredictiveRePlanner:
                  vertical_offsets=(-2.0, -1.0, 0.0, 1.0, 2.0), cruise_speed: float = 3.0,
                  hover_power_w: float = 112.0, battery_capacity_wh: float = 71.0,
                  energy_reserve_frac: float = 0.15, min_clearance: float = 2.0,
-                 sampling_step: float = 0.5) -> None:
+                 sampling_step: float = 0.5,
+                 thermal_aware: bool = False,
+                 thermal_ambient_c: float = 25.0) -> None:
         self.model = model or RiskWorldModel()
         self.beam = beam
         self.lateral_offsets = lateral_offsets
@@ -53,6 +61,13 @@ class PredictiveRePlanner:
         self.energy_reserve_frac = energy_reserve_frac
         self.min_clearance = min_clearance
         self.sampling_step = sampling_step
+        # Optional thermal-aware feasibility: when enabled, the planner also
+        # checks that the replanned route keeps every thermal node (cpu_npu /
+        # esc / motor / battery) under its limit over the flight time (energy
+        # alone is not enough — a hot compute/ESC/motor can still force an
+        # abort).  The model is simulated fresh each call.
+        self.thermal_aware = bool(thermal_aware)
+        self.thermal_ambient_c = float(thermal_ambient_c)
 
     def plan(self, start: np.ndarray, remaining: list[np.ndarray],
              battery_frac: float, obstacles=None,
@@ -112,6 +127,8 @@ class PredictiveRePlanner:
         req = (energy_h / max(self.battery_capacity_wh, 1e-9)) + self.energy_reserve_frac
         feasible = req <= battery_frac + 1e-9
         mc = self._min_clearance(repl_route, obstacles or [])
+        therm_feasible, therm_max, therm_worst, therm_margin = \
+            self._thermal_feasibility(repl_route, req)
 
         reasons = []
         if repl_risk < bas_risk - 1e-6:
@@ -120,6 +137,8 @@ class PredictiveRePlanner:
             reasons.append("extra_distance")
         if not feasible:
             reasons.append("energy_infeasible")
+        if not therm_feasible:
+            reasons.append("thermal_infeasible")
 
         return ReplanResult(
             route=repl_route, baseline=baseline,
@@ -127,7 +146,10 @@ class PredictiveRePlanner:
             bas_risk=bas_risk, repl_risk=repl_risk,
             bas_length=bas_len, repl_length=repl_len,
             extra_distance_frac=extra, energy_heavy_required=req,
-            feasible=feasible, min_clearance_m=mc, reasons=reasons,
+            feasible=feasible and therm_feasible, min_clearance_m=mc,
+            thermal_feasible=therm_feasible, thermal_max_c=therm_max,
+            thermal_worst_node=therm_worst, thermal_margin_c=therm_margin,
+            reasons=reasons,
         )
 
     def _empty(self, start: np.ndarray) -> ReplanResult:
@@ -137,6 +159,38 @@ class PredictiveRePlanner:
                             extra_distance_frac=0.0, energy_heavy_required=0.0,
                             feasible=True, min_clearance_m=float("inf"),
                             reasons=["no_remaining_waypoints"])
+
+    def _thermal_feasibility(self, route, energy_req: float) -> tuple[
+            bool, float, str, float]:
+        if not self.thermal_aware:
+            return True, 0.0, "", float("inf")
+        # Simulation of the part-level thermal model over the flight time
+        # implied by this route at cruise power.  We use a *fresh* model with
+        # the same part constants (importing the class directly) so repeated
+        # calls never carry heat from a previous planning cycle.
+        from .thermal import PartThermalModel
+        model = PartThermalModel(ambient_c=self.thermal_ambient_c)
+        t_total = max(0.1, self.route_length(route) / max(self.cruise_speed, 0.1))
+        power = self.hover_power_w
+        steps = max(1, int(min(t_total, 7200.0) / 0.5))
+        dt = t_total / steps
+        for _ in range(steps):
+            model.step(power, dt, compute_frac=0.3)
+        temps = model.temperatures()
+        worst = model.worst_node()
+        max_t = model.max_temp()
+        node = next((n for n in model.nodes if n.name == worst), None)
+        margin = node.margin_c if node is not None else float("inf")
+        first = model.nodes[0]
+        return max_t < first.max_temp_c, max_t, worst, margin
+
+    @staticmethod
+    def route_length(route) -> float:
+        total = 0.0
+        pts = [np.asarray(p, dtype=float).reshape(3) for p in route]
+        for a, b in zip(pts[:-1], pts[1:]):
+            total += float(np.linalg.norm(b - a))
+        return total
 
     def _offset(self, a: np.ndarray, b: np.ndarray, dlat: float,
                 dvert: float) -> np.ndarray:

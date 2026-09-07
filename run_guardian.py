@@ -374,6 +374,40 @@ def main() -> int:
           f"near={near:.3f} far={far:.3f} jammed={jammed:.3f} "
           f"(train_jam_max={jam_train:.3f})")
     print(f"[guardian] wrote out/guardian/data_pipeline.csv")
+
+    # Thermal-aware mission budget (brief-30): the same re-planner now checks
+    # that a route stays inside the part-level thermal envelope, too.  Cool
+    # ambient accepts; desert-hot ambient rejects a route that would cook the
+    # edge/NPU / battery before it lands.
+    from airlab.guardian import PredictiveRePlanner as ThermPlanner
+    start_pt = np.array([0.0, 0.0, -2.0])
+    rem_pt = [np.array([12.0, 0.0, -2.0])]
+    cool = ThermPlanner(thermal_aware=True, thermal_ambient_c=25.0,
+                        cruise_speed=3.0, hover_power_w=112.0,
+                        battery_capacity_wh=71.0).plan(
+        start_pt, rem_pt, battery_frac=1.0)
+    hot = ThermPlanner(thermal_aware=True, thermal_ambient_c=90.0,
+                       cruise_speed=3.0, hover_power_w=112.0,
+                       battery_capacity_wh=71.0).plan(
+        start_pt, rem_pt, battery_frac=1.0)
+    _write("out/guardian/thermal_budget.csv", [{
+        "case": "cool_25C", "thermal_feasible": int(cool.thermal_feasible),
+        "feasible": int(cool.feasible), "worst_node": cool.thermal_worst_node,
+        "max_temp_c": round(float(cool.thermal_max_c), 2),
+        "margin_c": round(float(cool.thermal_margin_c), 2),
+    }, {
+        "case": "hot_90C", "thermal_feasible": int(hot.thermal_feasible),
+        "feasible": int(hot.feasible), "worst_node": hot.thermal_worst_node,
+        "max_temp_c": round(float(hot.thermal_max_c), 2),
+        "margin_c": round(float(hot.thermal_margin_c), 2),
+    }])
+    print(f"[guardian][thermal_budget] cool=feasible={cool.feasible} "
+          f"worst={cool.thermal_worst_node} max={cool.thermal_max_c:.1f}C "
+          f"margin={cool.thermal_margin_c:.1f}C")
+    print(f"[guardian][thermal_budget] hot=feasible={hot.feasible} "
+          f"worst={hot.thermal_worst_node} max={hot.thermal_max_c:.1f}C "
+          f"margin={hot.thermal_margin_c:.1f}C")
+    print(f"[guardian] wrote out/guardian/thermal_budget.csv")
     return 0
 
 
