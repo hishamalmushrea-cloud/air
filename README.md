@@ -213,8 +213,16 @@ the remote/attack surface is intentionally defensive only (no weapons/targeting)
     log.  Validated on a **simulated PX4-schema fixture** (no real .ulg/.bag in
     repo): unlabelled→refused; labelled fixture→prior near 0.844 / far 0.044 and
     late-mission jam 0.75 vs early 0.067 (`docs/research-brief-31.md`).
-11. **Next** the neuromorphic/edge energy and perception path (sensed
-    obstacles), then dynamic thermal state in re-planning.
+11. **Low-watt edge perception path (implemented, simulated/estimated).**
+    `SpikeVision` is a transparent spiking-style front-end that converts a
+    sparse depth/range stream into obstacle detections and feeds them into the
+    oracle (sensed, not scripted).  Honest classification: D/Simulated/
+    Estimated; `gops_per_w=847` is a declared research figure.  Demo: dense
+    object detected, sparse group rejected; bridge applies route change with
+    risk reduction 0.637 and 2.11 m clearance at 8 W
+    (`docs/research-brief-32.md`).
+12. **Next** dynamic thermal state in re-planning, then event-camera/RGB
+    perception and the onboard-vs-ground split.
 
 ---
 

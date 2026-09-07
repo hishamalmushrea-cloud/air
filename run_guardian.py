@@ -446,6 +446,54 @@ def main() -> int:
     print(f"[guardian][log_reader] jam late={late_jam:.3f} > early="
           f"{early_jam:.3f}; prior near={near:.3f} far={far:.3f}")
     print(f"[guardian] wrote out/guardian/log_reader.csv")
+
+    # Low-watt edge perception path (priority #7).  A transparent spiking-style
+    # front-end converts a sparse depth-return cloud into obstacles, then feeds
+    # them to the *real* mission bridge (sensed, not scripted).  This is a
+    # **simulated/estimated** stand-in for SNN/NeuViT silicon, with declared
+    # efficiency numbers exposed.
+    from airlab.guardian import (SpikeVision, PerceptionToGuardian,
+                                 PerceptionConfig, MissionReplanBridge)
+    from airlab.mission import WaypointMission as PercepMission
+    cfg2 = PerceptionConfig(sensor_range_m=9.0, spike_voltage_gate_m=0.5,
+                            min_points=3)
+    vision = SpikeVision(cfg2)
+    # depth-return cloud: two objects ahead of the aircraft
+    pts = np.array([
+        # object A near the flight path (will be sensed + avoided)
+        [3.0, 0.0, -2.0], [3.2, 0.0, -2.0], [3.1, 0.2, -2.0],
+        # object B far enough to be ignored (too sparse)
+        [7.0, 5.0, -2.0], [7.1, 5.0, -2.0],
+    ])
+    percep = vision.process(pts, dt=0.1)
+    sensed = percep.obstacles
+    # real mission (3 waypoints) with the *sensed* obstacles
+    p_mission = PercepMission([(0, 0, 2), (6, 0, 2), (12, 0, 2)], speed=2.0)
+    from airlab.guardian import BridgeConfig as PercepBridgeConfig
+    p_bridge = MissionReplanBridge(
+        p_mission, np.array([0.0, 0.0, -2.0]), obstacles=sensed,
+        config=PercepBridgeConfig(max_extra_distance_frac=0.80,
+                                  min_clearance_m=2.0))
+    p_res = p_bridge.try_replan(0.0, force=True)
+    _write("out/guardian/perception.csv", [{
+        "spike_count": percep.spike_count,
+        "cluster_count": percep.cluster_count,
+        "detected_obs": len(sensed),
+        "edge_power_w": round(float(percep.energy_w), 3),
+        "gops_per_w": round(float(percep.gops_per_w), 1),
+        "intelligence_per_watt": round(float(percep.intelligence_per_watt), 3),
+        "bridge_applied": int(bool(p_bridge.applied)),
+        "risk_reduction": round(float(p_res.risk_reduction) if p_res else 0.0, 4),
+        "clearance_m": round(float(p_res.min_clearance_m) if p_res else 0.0, 3),
+    }])
+    print(f"[guardian][perception] detected={len(sensed)} clusters "
+          f"spikes={percep.spike_count} power={percep.energy_w:.2f}W "
+          f"iperf={percep.intelligence_per_watt:.2f} Hz/W "
+          f"gops/W={percep.gops_per_w:.0f}")
+    print(f"[guardian][perception] bridge applied={p_bridge.applied} "
+          f"risk_reduction={p_res.risk_reduction if p_res else 0.0:.3f} "
+          f"clearance={p_res.min_clearance_m if p_res else 0.0:.2f}m")
+    print(f"[guardian] wrote out/guardian/perception.csv")
     return 0
 
 

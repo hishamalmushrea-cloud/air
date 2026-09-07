@@ -240,6 +240,62 @@ class TestSimBridge(unittest.TestCase):
         self.assertEqual(len(lands), 0)
 
 
+class TestPerception(unittest.TestCase):
+    def _vision(self):
+        from airlab.guardian import PerceptionConfig, SpikeVision
+        cfg = PerceptionConfig(spike_threshold_m=3.0,
+                               spike_voltage_gate_m=0.5, min_points=3)
+        return SpikeVision(cfg)
+
+    def test_detects_obstacle_cluster(self):
+        vision = self._vision()
+        pts = np.array([
+            [1.0, 0.0, -2.0], [1.1, 0.0, -2.0], [1.05, 0.1, -2.0],
+            [6.0, 0.0, -2.0], [2.0, 3.0, -2.0],
+        ])
+        res = vision.process(pts)
+        self.assertEqual(len(res.obstacles), 1)
+        self.assertGreater(res.spike_count, 0)
+        self.assertAlmostEqual(res.obstacles[0].pos[0], 1.05, places=1)
+
+    def test_no_obstacle_when_no_points(self):
+        vision = self._vision()
+        res = vision.process(None)
+        self.assertEqual(len(res.obstacles), 0)
+        self.assertEqual(res.spike_count, 0)
+
+    def test_perception_reports_intelligence_per_watt(self):
+        from airlab.guardian import PerceptionConfig, SpikeVision
+        cfg = PerceptionConfig(edge_topps=0.35, edge_power_w=8.0,
+                               neuromorphic_gops_per_w=847.0, frame_hz=10.0)
+        vision = SpikeVision(cfg)
+        res = vision.process(np.array([[1.0, 0.0, -2.0],
+                                       [1.1, 0.0, -2.0],
+                                       [1.05, 0.1, -2.0]]))
+        self.assertGreater(res.energy_w, 0.0)
+        self.assertGreater(res.gops_per_w, 0.0)
+        self.assertAlmostEqual(res.energy_w, 8.0, places=2)
+
+    def test_perception_feeds_mission_bridge(self):
+        from airlab.guardian import PerceptionToGuardian, MissionReplanBridge
+        from airlab.mission import WaypointMission
+        mission = WaypointMission([(0, 0, 2), (12, 0, 2), (24, 0, 2)],
+                                  speed=2.0)
+        plink = PerceptionToGuardian()
+        # Simulate a depth return straight ahead inside the sensor range
+        # (sensed obstacle at ~7.5 m).
+        pts = np.array([[7.5, 0.0, -2.0], [7.6, 0.0, -2.0],
+                        [7.55, 0.2, -2.0]])
+        sensed = plink.obstacles(pts, dt=0.1)
+        self.assertEqual(len(sensed), 1)
+        bridge = MissionReplanBridge(mission, np.array([0.0, 0.0, -2.0]),
+                                     obstacles=sensed)
+        res = bridge.try_replan(0.0, force=True)
+        self.assertTrue(res.feasible)
+        self.assertTrue(res.risk_reduction > 0.0)
+        self.assertTrue(bridge.applied)
+
+
 class TestLogReader(unittest.TestCase):
     def test_px4_reader_loads_fixture_and_refuses_unlabelled_prior(self):
         from airlab.guardian import (Px4RosLogReader, write_test_fixture,

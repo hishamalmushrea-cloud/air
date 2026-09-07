@@ -89,7 +89,8 @@ sensors → fusion EKF → controller → dynamics
 | Medium | Data pipeline (edge → storage → analytics) | **✅ done (brief-29)** |
 | Medium | Thermal-aware mission budget | **✅ done (brief-30)** |
 | Medium | Real PX4/ROS log reader → dataset | **✅ done (brief-31, adapter validated on simulated PX4-schema fixture)** |
-| High | Perception path (sensed obstacles) | **NEXT → priority #7** |
+| High | Low-watt edge perception path (spiking/NeuViT-style) | **✅ done (brief-32, simulated/estimated surrogate)** |
+| Medium | Dynamic thermal state in re-planning | **NEXT → priority #8** |
 | Medium | Motor/ESC/prop system model (thrust/power/temp) | RESEARCH |
 | Experimental | Neuromorphic SNN planner @ ~847 GOp/s/W class | LONG TERM |
 | Experimental | Swarm split-risk graph | LONG TERM |
@@ -122,8 +123,10 @@ sensors → fusion EKF → controller → dynamics
   envelope; `thermal_infeasible` gates a route).
 - **G10**: real PX4/ROS telemetry log reader (`Px4RosLogReader`; honest
   refusal to fit an unlabelled log; validated on simulated PX4-schema fixture).
-- **G11 (next)**: perception path (sensed obstacles -> guardian_obstacles),
-  then dynamic thermal state in re-planning.
+- **G11**: low-watt edge perception path (`SpikeVision`; sensed obstacles feed
+  the oracle; energy/intelligence-per-watt declared estimate).
+- **G12 (next)**: dynamic thermal state in re-planning; then event-camera/RGB
+  perception; then onboard-vs-ground split.
 
 ## 8. Engineering Decision Log (current entries)
 
