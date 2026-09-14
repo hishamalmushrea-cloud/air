@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>تجربة المسار الحراري-الواعي — Guard­ian Demo</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --edge:#30363d; --txt:#e6edf3;
+    --mut:#8b949e; --ok:#3fb950; --mit:#58a6ff; --rej:#f85149;
+    --cpu:#ff6b6b; --esc:#ffa94d; --motor:#4dabf7; --battery:#51cf66;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+       font-family:"Segoe UI",Tahoma,Arial,sans-serif;line-height:1.55}
+  header{padding:16px 22px;border-bottom:1px solid var(--edge)}
+  header h1{margin:0;font-size:20px}
+  header p{margin:4px 0 0;color:var(--mut);font-size:13px}
+  .wrap{display:grid;grid-template-columns:320px 1fr;gap:16px;padding:16px 22px}
+  @media(max-width:900px){.wrap{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--edge);border-radius:12px;padding:14px 16px}
+  .card h2{margin:0 0 10px;font-size:15px}
+  .ctrl{margin:12px 0}
+  .ctrl label{display:flex;justify-content:space-between;font-size:13px;color:var(--mut)}
+  .ctrl label b{color:var(--txt);direction:ltr}
+  .ctrl input[type=range]{width:100%;accent-color:var(--mit);direction:ltr}
+  button{width:100%;padding:12px;font-size:16px;font-weight:700;color:#fff;
+         background:var(--mit);border:0;border-radius:10px;cursor:pointer;margin-top:8px}
+  button:hover{filter:brightness(1.1)}
+  button:disabled{opacity:.5;cursor:wait}
+  #decision{font-size:22px;font-weight:800;text-align:center;padding:10px;border-radius:10px;margin-bottom:10px}
+  .ok {background:rgba(63,185,80,.15);color:var(--ok);border:1px solid var(--ok)}
+  .mit{background:rgba(88,166,255,.15);color:var(--mit);border:1px solid var(--mit)}
+  .rej{background:rgba(248,81,73,.15);color:var(--rej);border:1px solid var(--rej)}
+  .stats{display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13px}
+  .stat{background:#0d1117;border:1px solid var(--edge);border-radius:8px;padding:8px}
+  .stat .k{color:var(--mut);font-size:11px}
+  .stat .v{font-size:16px;font-weight:700;direction:ltr;text-align:right}
+  canvas{width:100%;background:#0d1117;border:1px solid var(--edge);
+         border-radius:8px;direction:ltr}
+  .legend{display:flex;flex-wrap:wrap;gap:10px;font-size:12px;color:var(--mut);margin:8px 0}
+  .chip{display:inline-flex;align-items:center;gap:5px}
+  .dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+  .note{margin:16px 22px;color:var(--mut);font-size:12;border-right:3px solid var(--mit);padding-right:10px}
+  .err{color:var(--rej);font-size:13;direction:ltr;text-align:left}
+</style>
+</head>
+<body>
+<header>
+  <h1>🌡️ المسار الحراري-الواعي — جرّب بنفسك</h1>
+  <p>بدّل الحرارة الحية لكل جزء ثم اضغط «خطّط». القرار يُحسب بمخطّط الحراسة الحقيقي
+     (<code>PredictiveRePlanner</code>): قبول اسمي، أو تخفيف (تبريد) Compute/Power، أو رفض.</p>
+</header>
+
+<div class="wrap">
+  <div>
+    <div class="card">
+      <h2>⚙️ حالة المكدّس الحيّة</h2>
+      <div class="ctrl"><label>حرارة المعالج/الحافة cpu_npu <b><span id="v-cpu">59</span>°C</b></label>
+        <input id="cpu" type="range" min="25" max="80" step="0.5" value="59"></div>
+      <div class="ctrl"><label>المحرّك ESC <b><span id="v-esc">30</span>°C</b></label>
+        <input id="esc" type="range" min="25" max="95" step="0.5" value="30"></div>
+      <div class="ctrl"><label>محرّك الدفع motor <b><span id="v-motor">30</span>°C</b></label>
+        <input id="motor" type="range" min="25" max="100" step="0.5" value="30"></div>
+      <div class="ctrl"><label>البطارية battery <b><span id="v-battery">30</span>°C</b></label>
+        <input id="battery" type="range" min="25" max="55" step="0.5" value="30"></div>
+      <div class="ctrl"><label>حرارة الجو ambient <b><span id="v-ambient">25</span>°C</b></label>
+        <input id="ambient" type="range" min="5" max="50" step="0.5" value="25"></div>
+      <div class="ctrl"><label>طول المسار route <b><span id="v-route_len">12</span> m</b></label>
+        <input id="route_len" type="range" min="5" max="200" step="1" value="12"></div>
+      <div class="ctrl"><label>شحن البطارية <b><span id="v-battery_frac">100</span>%</b></label>
+        <input id="battery_frac" type="range" min="0.2" max="1" step="0.05" value="1"></div>
+      <button id="go">خطّط ▶</button>
+      <div class="err" id="err"></div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <div id="decision" class="ok">—</div>
+      <div class="stats" id="stats"></div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <h2>📈 حرارة كل جزء عبر الرحلة — متقطع: الملف الاسمي (112W) | متصل: الملف المختار</h2>
+      <div class="legend" id="legend"></div>
+      <canvas id="chart" height="300"></canvas>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <h2>🗺️ حدود التبريد: بداية حرارة المعالج مقابل قرار المخطّط (مُسح فعلي)</h2>
+      <div class="legend">
+        <span class="chip"><span class="dot" style="background:var(--ok)"></span> قبول اسمي</span>
+        <span class="chip"><span class="dot" style="background:var(--mit)"></span> بُرّد (power_frac &lt; 1)</span>
+        <span class="chip"><span class="dot" style="background:var(--rej)"></span> مرفوض</span>
+      </div>
+      <canvas id="sweep" height="180"></canvas>
+    </div>
+  </div>
+</div>
+
+<div class="note">
+  ⚠️ <b>حدود علمية:</b> كل الأرقام هنا <b>محاكاة</b> بنموذج حراري جزئي معلن الثوابت
+  (cpu 55°C، battery 45°C، esc 85°C، motor 90°C). طاقة أقل تعني سرعة أقل وزمن تعرّض أطول —
+  لا «غداء مجاني». لا تمثل قياسات طيران ولا توحي بنجاح خارجي غير مخطط.
+  أبحاث أمنية دفاعية فقط.
+</div>
+
+<script>
+const NODE_COLORS = {cpu_npu:'#ff6b6b', esc:'#ffa94d', motor:'#4dabf7', battery:'#51cf66'};
+const NODE_AR = {cpu_npu:'المعالج cpu_npu', esc:'ESC', motor:'المحرّك', battery:'البطارية'};
+const $ = id => document.getElementById(id);
+const ids = ['cpu','esc','motor','battery','ambient','route_len','battery_frac'];
+ids.forEach(id => $(id).addEventListener('input', e => {
+  const map = {cpu:'v-cpu',esc:'v-esc',motor:'v-motor',battery:'v-battery',
+               ambient:'v-ambient',route_len:'v-route_len',battery_frac:'v-battery_frac'};
+  let v = parseFloat(e.target.value);
+  $(map[id]).textContent = id==='battery_frac' ? Math.round(v*100) : v;
+}));
+
+function params() {
+  const q = new URLSearchParams();
+  ids.forEach(id => q.set(id, $(id).value));
+  return q;
+}
+
+async function jget(path){ const r = await fetch(path); if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }
+
+function drawChart(cv, seriesList, limits, tmax) {
+  const ctx = cv.getContext('2d');
+  const W = cv.width = cv.clientWidth * 2, H = cv.height = cv.clientHeight * 2;
+  ctx.clearRect(0,0,W,H);
+  let ymax = 30, ymin = 5;
+  seriesList.forEach(s => Object.keys(s.nodes).forEach(n =>
+    s.nodes[n].forEach(v => { ymax = Math.max(ymax,v); ymin = Math.min(ymin,v); })));
+  Object.values(limits).forEach(v => ymax = Math.max(ymax, v+3));
+  ymax *= 1.04;
+  const X = t => 60 + (W-100) * t / tmax;
+  const Y = v => H - 45 - (H-80) * (v - ymin) / (ymax - ymin);
+  ctx.strokeStyle = '#30363d'; ctx.fillStyle = '#8b949e'; ctx.font = '20px monospace';
+  for (let v = Math.ceil(ymin/5)*5; v <= ymax; v += 10) {
+    ctx.beginPath(); ctx.moveTo(60, Y(v)); ctx.lineTo(W-40, Y(v));
+    ctx.globalAlpha = .35; ctx.stroke(); ctx.globalAlpha = 1;
+    ctx.fillText(v+'°', 12, Y(v)+7);
+  }
+  for (let t = 0; t <= tmax; t += Math.max(1, Math.round(tmax/6))) {
+    ctx.fillText(Math.round(t)+'s', X(t)-12, H-14);
+  }
+  // limit lines
+  Object.entries(limits).forEach(([n,v]) => {
+    ctx.strokeStyle = (NODE_COLORS[n]||'#888'); ctx.setLineDash([4,10]);
+    ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(60, Y(v)); ctx.lineTo(W-40, Y(v)); ctx.stroke();
+    ctx.fillStyle = ctx.strokeStyle; ctx.fillText('حد '+n+' '+v+'°', W-40-190, Y(v)-8);
+  });
+  ctx.setLineDash([]);
+  seriesList.forEach(s => {
+    Object.entries(s.nodes).forEach(([n, vals]) => {
+      ctx.strokeStyle = NODE_COLORS[n]||'#ccc';
+      ctx.setLineDash(s.dashed ? [14,10] : []);
+      ctx.lineWidth = s.dashed ? 2.5 : 4;
+      ctx.beginPath();
+      vals.forEach((v,i) => { const x=X(s.t[i]), y=Y(v); i?ctx.lineTo(x,y):ctx.moveTo(x,y); });
+      ctx.stroke();
+    });
+  });
+  ctx.setLineDash([]);
+}
+
+function drawSweep(cv, points, limits) {
+  const ctx = cv.getContext('2d');
+  const W = cv.width = cv.clientWidth * 2, H = cv.height = cv.clientHeight * 2;
+  ctx.clearRect(0,0,W,H);
+  if(!points.length) return;
+  const xs = points.map(p=>p.cpu), x0 = Math.min(...xs), x1 = Math.max(...xs);
+  const X = v => 60 + (W-110) * (v - x0) / Math.max(1e-6, x1 - x0);
+  const Y = pf => H - 45 - (H-75) * (pf - 0.35) / (1.05 - 0.35);
+  ctx.strokeStyle='#30363d'; ctx.fillStyle='#8b949e'; ctx.font='20px monospace';
+  [0.4,0.6,0.8,1.0].forEach(pf => {
+    ctx.globalAlpha=.3; ctx.beginPath(); ctx.moveTo(60,Y(pf)); ctx.lineTo(W-50,Y(pf)); ctx.stroke(); ctx.globalAlpha=1;
+    ctx.fillText((pf*100)+'%', 8, Y(pf)+7);
+  });
+  ctx.fillText('power_frac ←', 60, 24);
+  ctx.fillText('cpu start °C →', W-260, H-14);
+  // cpu limit marker
+  const L = limits.cpu_npu;
+  if (L >= x0 && L <= x1) {
+    ctx.strokeStyle = '#f85149'; ctx.setLineDash([6,8]);
+    ctx.beginPath(); ctx.moveTo(X(L), 30); ctx.lineTo(X(L), H-45); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle='#f85149'; ctx.fillText('حد '+L+'°C', X(L)-120, 50);
+  }
+  points.forEach(p => {
+    ctx.fillStyle = p.decision==='ok' ? '#3fb950' : p.decision==='mitigated' ? '#58a6ff' : '#f85149';
+    ctx.beginPath(); ctx.arc(X(p.cpu), Y(p.power_frac), 9, 0, 7); ctx.fill();
+    ctx.fillText(p.cpu+'°', X(p.cpu)-16, H-14);
+  });
+}
+
+function legendFor(tl_n, tl_c, mit) {
+  const chip = (c,t,dash) => `<span class="chip"><span class="dot" style="background:${c}"></span>${t}${dash?' (اسمي)':''}</span>`;
+  let h = '';
+  Object.keys(NODE_AR).forEach(n => { h += chip(NODE_COLORS[n], NODE_AR[n]); });
+  $('legend').innerHTML = h + `<span class="chip" style="margin-inline-start:14px">▪ متقاطع = الملف الاسمي 112W</span>` +
+    (mit ? `<span class="chip">▪ متصل = ملف التخفيف ${Math.round(tl_c.power_w)}W</span>` : '');
+}
+
+async function run() {
+  $('err').textContent=''; $('go').disabled = true;
+  try {
+    const q = params();
+    const d = await jget('/api/plan?' + q.toString());
+    const el = $('decision');
+    if (d.decision === 'ok')      { el.className='ok';  el.textContent='✅ مقبول عند الملف الاسمي (لا تبريد مطلوب)'; }
+    else if (d.decision==='mitigated') { el.className='mit'; el.textContent='🧊 بُرّد: أصبح ممكناً بخفض ملف التشغيل'; }
+    else                          { el.className='rej'; el.textContent='⛔ مرفوض: لا ملف آمن داخل النطاق'; }
+    const rows = [
+      ['worst node', d.worst_node || '—'],
+      ['أعلى حرارة على المسار', d.max_temp_c + ' °C'],
+      ['margin', (d.margin_c===null?'∞':d.margin_c+' °C')],
+      ['compute_frac', d.compute_frac],
+      ['power_frac', d.power_frac],
+      ['power', d.power_w + ' W'],
+      ['الزمن المطلق (اسمي)', d.timeline_nominal.t_total_s + ' s'],
+      ['الزمن المطلق (مختار)', d.timeline_chosen.t_total_s + ' s'],
+      ['أسباب', (d.reasons.join(', ')||'لا شيء')],
+      ['طاقة feasible', d.feasible ? 'نعم' : 'لا'],
+    ];
+    $('stats').innerHTML = rows.map(([k,v]) =>
+      `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
+    drawChart($('chart'),
+      [{t:d.timeline_nominal.t, nodes:d.timeline_nominal.nodes, dashed:true},
+       {t:d.timeline_chosen.t, nodes:d.timeline_chosen.nodes, dashed:false}],
+      d.limits,
+      Math.max(d.timeline_nominal.t_total_s, d.timeline_chosen.t_total_s));
+    legendFor(d.timeline_nominal, d.timeline_chosen, d.mitigated);
+    const s = await jget('/api/sweep?' + q.toString());
+    drawSweep($('sweep'), s.points, s.limits);
+  } catch(e) {
+    $('err').textContent = 'خطأ: ' + e.message;
+  } finally {
+    $('go').disabled = false;
+  }
+}
+$('go').addEventListener('click', run);
+run();
+</script>
+</body>
+</html>

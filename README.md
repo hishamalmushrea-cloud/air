@@ -249,7 +249,12 @@ the remote/attack surface is intentionally defensive only (no weapons/targeting)
     keeps every node under its own limit, and only rejects when no in-range
     profile is safe.  Demo (`out/guardian/thermal_trajectory.csv`): hot edge
     59 °C → feasible at 90 % throttle (100.8 W); extreme 68 °C → rejected
-    (`docs/research-brief-36.md`).
+    (`docs/research-brief-36.md`).  Interactive browser demo:
+    `PYTHONPATH=src .venv/bin/python tools/thermal_traj_app.py --port 8080`
+    then open `http://localhost:8080` — set the live part temperatures, route
+    length and battery level and watch the planner accept / cool / reject the
+    route, with nominal-vs-chosen temperature timelines and a cooling-frontier
+    sweep (simulated, declared constants).
 16. **Next** dynamic link-aware rebalancing, then real GCS integration, then
     constraint-aware trajectory.
 
