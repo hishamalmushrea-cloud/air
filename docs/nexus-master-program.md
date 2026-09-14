@@ -137,6 +137,10 @@ sensors → fusion EKF → controller → dynamics
   onboard, privacy/low-bandwidth analytics offload only when safe).
 - **G15**: thermal-aware trajectory (cool a hot route, not only reject) —
   `_thermal_feasibility` searches a compute/power mitigation profile.
+- **G15b (design doc)**: مشروع "حبل النجاة" — humanitarian SAR drone concept,
+  3 form concepts scored 1–10 across 10 criteria with quadrant honesty tags
+  (`docs/rescue-drone/`); technical seeds come from guardian modules
+  (thermal model, edge split, replanner, event perception).
 - **G16 (next)**: dynamic link-aware rebalancing; then real GCS integration;
   then constraint-aware trajectory.
 

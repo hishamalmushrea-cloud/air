@@ -255,7 +255,11 @@ the remote/attack surface is intentionally defensive only (no weapons/targeting)
     length and battery level and watch the planner accept / cool / reject the
     route, with nominal-vs-chosen temperature timelines and a cooling-frontier
     sweep (simulated, declared constants).
-16. **Next** dynamic link-aware rebalancing, then real GCS integration, then
+17. **مشروع "حبل النجاة" (وثيقة تصميم مفهومية):** تصميم من الصفر لطائرة
+    مسيّرة إغاثية ذكية (SAR + إسقاط مساعدات + شبكة طوارئ + سرب + توأم رقمي)،
+    3 مفاهيم شكلية + مقارنة mCDA بالنقاط (اختيار جناح ثابت VTOL مختلط A 8.0)،
+    كل الوسوم برباعية الصدق — `docs/rescue-drone/README.md`.
+18. **Next** dynamic link-aware rebalancing, then real GCS integration, then
     constraint-aware trajectory.
 
 ---
