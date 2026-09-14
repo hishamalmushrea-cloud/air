@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>✈️ محاكي القيادة الحي — Guardian Flight Sim</title>
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:#05070d;color:#e6edf3;
+            font-family:"Segoe UI",Tahoma,Arial,sans-serif;overflow:hidden}
+  #scene{position:absolute;inset:0;width:100%;height:100%;display:block}
+  .hud{position:absolute;pointer-events:none}
+  .card{background:rgba(13,17,23,.78);border:1px solid #30363d;border-radius:10px;
+        padding:8px 12px}
+  #tele{top:14px;right:14px;font-size:14px;direction:ltr;text-align:left;min-width:170px}
+  #tele b{color:#58a6ff}
+  #temps{top:14px;left:14px;width:230px;font-size:12px;direction:ltr}
+  .trow{display:grid;grid-template-columns:78px 1fr 44px;align-items:center;gap:6px;margin:5px 0}
+  .bar{height:9px;background:#21262d;border-radius:5px;position:relative;overflow:hidden}
+  .bar>i{position:absolute;inset:0 auto 0 0;width:0%;border-radius:5px;transition:width .2s}
+  .bar::after{content:"";position:absolute;top:0;bottom:0;width:2px;background:#f85149}
+  .lim{position:absolute;top:-2px;width:2px;height:13px;background:#f85149;opacity:.9}
+  #banner{top:70px;left:50%;transform:translateX(-50%);font-size:20px;font-weight:800;
+          padding:10px 26px;border-radius:12px;text-align:center}
+  .nominal{background:rgba(63,185,80,.18);border:1px solid #3fb950;color:#3fb950}
+  .warm{background:rgba(255,169,77,.18);border:1px solid #ffa94d;color:#ffa94d}
+  .hot{background:rgba(248,81,73,.22);border:1px solid #f85149;color:#f85149;
+       animation:blink 1s infinite}
+  @keyframes blink{50%{opacity:.55}}
+  #thr{bottom:16px;right:14px;width:26px;height:150px;background:#21262d;border-radius:8px;
+       position:absolute;overflow:hidden;pointer-events:none}
+  #thr>i{position:absolute;bottom:0;left:0;right:0;height:0;background:linear-gradient(#58a6ff,#3fb950)}
+  #cap{position:absolute;left:0;right:0;height:2px;background:#f85149}
+  #thrlbl{bottom:170px;right:8px;font-size:11px;color:#8b949e;pointer-events:none}
+  #help{bottom:14px;left:14px;font-size:12px;color:#c9d1d9;line-height:1.9}
+  #help kbd{background:#21262d;border:1px solid #30363d;border-radius:5px;padding:1px 7px;
+            font-family:monospace;direction:ltr}
+  #mission{top:14px;right:50%;transform:translateX(50%);pointer-events:auto;display:flex;gap:8px}
+  #mission button{background:#161b22;color:#c9d1d9;border:1px solid #30363d;border-radius:8px;
+                  padding:7px 13px;font-size:13px;cursor:pointer}
+  #mission button:hover{border-color:#58a6ff;color:#58a6ff}
+  #mission button.danger:hover{border-color:#f85149;color:#f85149}
+  #toast{top:56px;right:50%;transform:translateX(50%);font-size:13;color:#8b949e}
+  #vignette{position:absolute;inset:0;pointer-events:none;
+            box-shadow:inset 0 0 180px rgba(0,0,0,.55)}
+  #ai{pointer-events:auto}
+  .chipb{display:inline-block;background:#161b22;border:1px solid #30363d;border-radius:6px;
+         padding:2px 8px;margin:2px;font-size:12px;direction:ltr}
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+<div id="vignette"></div>
+
+<div class="hud card" id="tele">
+  SPD <b id="s-spd">0.0</b> m/s &nbsp; ALT <b id="s-alt">0.0</b> m<br>
+  PWR <b id="s-pwr">0</b> W &nbsp; BAT <b id="s-bat">100</b>%<br>
+  CLR <b id="s-clr">--</b> m &nbsp; THR <b id="s-thr">0</b>%
+</div>
+
+<div class="hud card" id="temps">
+  <b style="font-size:13">🌡️ حرارة الأجزاء (حيّة من الخادم)</b>
+  <div class="trow"><span>cpu_npu</span><div class="bar"><i id="t-cpu" style="background:#ff6b6b"></i><i class="lim" id="l-cpu"></i></div><span id="v-cpu">--</span></div>
+  <div class="trow"><span>esc</span><div class="bar"><i id="t-esc" style="background:#ffa94d"></i><i class="lim" id="l-esc"></i></div><span id="v-esc">--</span></div>
+  <div class="trow"><span>motor</span><div class="bar"><i id="t-motor" style="background:#4dabf7"></i><i class="lim" id="l-motor"></i></div><span id="v-motor">--</span></div>
+  <div class="trow"><span>battery</span><div class="bar"><i id="t-bat" style="background:#51cf66"></i><i class="lim" id="l-bat"></i></div><span id="v-bat">--</span></div>
+  <span class="chipb">worst: <b id="s-worst">--</b></span>
+  <label class="chipb" id="ai"><input type="checkbox" id="aiv"> AI Vision (compute 0.6)</label>
+</div>
+
+<div class="hud card nominal" id="banner">NOMINAL</div>
+
+<div class="hud" id="mission">
+  <button id="m-plan">📋 مهمة 60m: خطّط بالمخطّط الحقيقي</button>
+  <button id="m-fly" disabled>🚀 نفّذ المهمة</button>
+  <button id="m-hotday">☀️ يوم حار 42°</button>
+  <button id="m-reset" class="danger">♻️ إعادة ضبط المركبة 25°</button>
+</div>
+<div class="hud" id="toast"></div>
+
+<div id="thrlbl">THR</div>
+<div id="thr"><div id="cap"></div><i id="thrfill"></i></div>
+
+<div class="hud card" id="help">
+  <b>قيادة حيّة:</b><br>
+  <kbd>↑</kbd>/<kbd>↓</kbd> ميل (أمام/خلف) &nbsp; <kbd>←</kbd>/<kbd>→</kbd> انحراف<br>
+  <kbd>W</kbd>/<kbd>S</kbd> صعود/هبوط &nbsp; <kbd>A</kbd>/<kbd>D</kbd> دوران yaw<br>
+  الحارس يحدّ الدفعة تلقائياً عند السخونة. كل القيم محاكاة.
+</div>
+
+<script>
+// ------------------------------------------------------------ physics (arcade, browser-side)
+const P = {x:0, y:0, z:1.2, yaw:0, vx:0, vy:0, vz:0, pitch:0, roll:0, thr:0,
+           cap:1.0, airborne:true, cf:0.3, camLag:0};
+const keys = {};
+addEventListener('keydown', e => { keys[e.code]=true; if(e.code.startsWith('Arrow')) e.preventDefault(); });
+addEventListener('keyup',   e => keys[e.code]=false);
+
+// obstacles (safety demo: keep clearance > 2 m): [x, y, half-size, height]
+const OBSTACLES = [[10,-3.0,1.2,3.5],[18,2.6,1.0,2.5],[26,-2.4,1.3,4.0],[38,1.8,1.1,3.0],
+                   [48,-3.2,1.4,4.5],[12,3.4,1.0,2.0]];
+const GOAL = {x:60, y:0};
+
+function nearestClearance(){
+  let best = 1e9;
+  for(const [ox,oy,hs,h] of OBSTACLES){
+    const dx = Math.max(0, Math.abs(P.x-ox)-hs), dy = Math.max(0, Math.abs(P.y-oy)-hs);
+    if(P.z < h+0.5) best = Math.min(best, Math.hypot(dx,dy));
+  }
+  // goal is not an obstacle
+  return best === 1e9 ? Infinity : best;
+}
+
+let mission = null;  // {power_frac, compute_frac, len, tTotal, t0, verdict}
+let tPrev = performance.now();
+
+function physics(dt){
+  let pitchCmd = (keys['ArrowUp']?1:0) - (keys['ArrowDown']?1:0);
+  let rollCmd  = (keys['ArrowLeft']?1:0) - (keys['ArrowRight']?1:0);
+  let yawCmd   = (keys['KeyD']?1:0) - (keys['KeyA']?1:0);
+  let thrCmd   = (keys['KeyW']?1:0) - (keys['KeyS']?1:0);
+
+  if(mission){  // autopilot: fly to GOAL with the guardian-planned profile
+    const t = (performance.now()-mission.t0)/1000;
+    const remain = Math.hypot(GOAL.x-P.x, GOAL.y-P.y);
+    if(remain < 1.2 || t > mission.tTotal){
+      const capd = mission; mission = null;
+      toast(`✅ انتهت المهمة — تحقّق من حرارة الأجزاء (${capd.verdict})`, 9000);
+    } else {
+      const wantYaw = Math.atan2(GOAL.x-P.x, -(GOAL.y-P.y));
+      yawCmd = 0; P.yaw += (normalize(wantYaw - P.yaw)) * Math.min(1, dt*1.5);
+      pitchCmd = 1; rollCmd = 0;
+      thrCmd = 0.02; // gentle climb hold
+      P.thr = 0.92 * capd.power_frac;
+    }
+  }
+  P.yaw += yawCmd * 1.6 * dt;
+  const TILT = 0.42, LIFT = 5.6;
+  P.pitch += ((pitchCmd*TILT) - P.pitch) * Math.min(1, 6*dt);
+  P.roll  += ((rollCmd *TILT) - P.roll ) * Math.min(1, 6*dt);
+  P.thr   += (thrCmd*1.2*(mission?0:1)) * dt;
+  P.thr    = Math.min(Math.max(P.thr, 0.25), 1.12, P.cap + 0.12);
+  // thrust & drag
+  const fwd = [Math.sin(P.yaw), -Math.cos(P.yaw)];
+  const rgt = [Math.cos(P.yaw),  Math.sin(P.yaw)];
+  const accel = {t:[0,0,0]};
+  const thrust = (P.thr - 0.88) * LIFT;               // hover ≈ 0.88
+  P.vz += thrust * dt * 1.9;
+  const ax = P.pitch*4.2, ay = -P.roll*4.2;
+  P.vx += (fwd[0]*ax + rgt[0]*ay)*dt; P.vy += (fwd[1]*ax + rgt[1]*ay)*dt;
+  const dr = Math.exp(-0.9*dt);
+  P.vx*=dr; P.vy*=dr; P.vz*=Math.exp(-0.8*dt);
+  P.x += P.vx*dt; P.y += P.vy*dt; P.z = Math.max(0.4, P.z + P.vz*dt);
+  P.airborne = P.z > 0.5;
+}
+function normalize(a){ while(a>Math.PI)a-=2*Math.PI; while(a<-Math.PI)a+=2*Math.PI; return a; }
+
+// ------------------------------------------------------------ 3D draw (canvas 2D projection)
+const cv = document.getElementById('scene'), ctx = cv.getContext('2d');
+function fit(){ cv.width = innerWidth*devicePixelRatio; cv.height = innerHeight*devicePixelRatio; }
+addEventListener('resize', fit); fit();
+
+function camera(){
+  P.camLag += (P.yaw - P.camLag) * 0.08 + normalize(P.yaw-P.camLag)*0; // soft chase
+  if (Math.abs(normalize(P.yaw-P.camLag))>0.005) P.camLag += normalize(P.yaw-P.camLag)*0.06;
+  const cy = P.camLag;
+  const f = [Math.sin(cy), -Math.cos(cy)];
+  return {px:P.x - f[0]*7.5, py:P.y - f[1]*7.5, pz:P.z + 3.4, yaw:cy, f, pitch:0.10};
+}
+function project(C, x, y, z){
+  const dx = x-C.px, dy = y-C.py, dz = z-C.pz;
+  const cx = dx*Math.cos(-C.yaw) - dy*Math.sin(-C.yaw);
+  const cy = dx*Math.sin(-C.yaw) + dy*Math.cos(-C.yaw);
+  const zz = -cy;                                   // forward
+  const yy = dz - zz*C.pitch + 0.0;                 // slight down-tilt
+  if (zz < 0.25) return null;
+  const fpx = cv.height * 0.95;
+  return [cv.width/2 - cx*fpx/zz, cv.height/2 - yy*fpx/zz, zz];
+}
+function line(C,a,b,w,style){
+  const A = project(C,...a), B = project(C,...b);
+  if(!A||!B) return;
+  ctx.strokeStyle = style; ctx.lineWidth = Math.max(1, (w||6)*(2.8/A[2]));
+  ctx.beginPath(); ctx.moveTo(A[0],A[1]); ctx.lineTo(B[0],B[1]); ctx.stroke();
+}
+function face(C,pts,style){
+  const Pj = pts.map(p=>project(C,...p));
+  if(Pj.some(p=>!p)) return;
+  ctx.fillStyle = style;
+  ctx.beginPath(); Pj.forEach((p,i)=>i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]));
+  ctx.closePath(); ctx.fill();
+}
+
+function draw(done){
+  const C = camera();
+  const W=cv.width, H=cv.height;
+  // sky + ground
+  const horizonY = H/2 + C.pz*cv.height*0.95*C.pitch;
+  let g = ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#0b1c33'); g.addColorStop(0.5,'#123'); g.addColorStop(0.501,'#1e2b1e');
+  g.addColorStop(1,'#2c3b26');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  // sun
+  const sun = project(C, Math.sin(C.yaw+0.5)*120, -Math.cos(C.yaw+0.5)*120, 40);
+  if(sun){ ctx.fillStyle='rgba(255,220,120,.9)'; ctx.beginPath(); ctx.arc(sun[0],sun[1],cv.height*0.04,0,7); ctx.fill(); }
+  // ground grid
+  for(let gx=-5; gx<=75; gx+=5) line(C,[gx,-25,0],[gx,25,0],3,'rgba(120,150,120,.22)');
+  for(let gy=-25; gy<=25; gy+=5) line(C,[-5,gy,0],[75,gy,0],3,'rgba(120,150,120,.22)');
+  // obstacles
+  for(const [ox,oy,hs,h] of OBSTACLES){
+    const near = Math.hypot(P.x-ox,P.y-oy) < 9;
+    const cTop = near ? 'rgba(248,81,73,.75)' : 'rgba(120,130,105,.55)';
+    const cSid = near ? 'rgba(160,60,55,.8)'  : 'rgba(84,92,74,.8)';
+    face(C,[[ox-hs,oy-hs,h],[ox+hs,oy-hs,h],[ox+hs,oy+hs,h],[ox-hs,oy+hs,h]],cTop);
+    face(C,[[ox-hs,oy+hs,0],[ox+hs,oy+hs,0],[ox+hs,oy+hs,h],[ox-hs,oy+hs,h]],cSid);
+    face(C,[[ox+hs,oy-hs,0],[ox+hs,oy+hs,0],[ox+hs,oy+hs,h],[ox+hs,oy-hs,h]],cSid);
+  }
+  // goal flag
+  line(C,[GOAL.x,GOAL.y,0],[GOAL.x,GOAL.y,4],10,'#ffd166');
+  face(C,[[GOAL.x,GOAL.y,4],[GOAL.x+1.6,GOAL.y+0.1,3.5],[GOAL.x,GOAL.y,3]],'rgba(255,209,102,.9)');
+  if(!mission && !draw.__flag){ 
+    const g = project(C, GOAL.x, GOAL.y, 4.4);
+    if(g) { ctx.fillStyle='#ffd166'; ctx.font=`${cv.height*0.022}px monospace`;
+            ctx.fillText('GOAL 60m', g[0]-50, g[1]-14); }
+  }
+  // drone (chase cam: always near center)
+  const dx=P.x, dy=P.y, dz=P.z;
+  const f=[Math.sin(P.yaw),-Math.cos(P.yaw)], r=[Math.cos(P.yaw),Math.sin(P.yaw)];
+  const L=0.55;
+  const arms=[[dx+f[0]*L,dy+f[1]*L,dz,1],[dx-f[0]*L,dy-f[1]*L,dz,1],
+              [dx+r[0]*L,dy+r[1]*L,dz,0],[dx-r[0]*L,dy-r[1]*L,dz,0]];
+  line(C,[dx,dy,dz-0.28],[dx,dy,dz],20,'#9ad');  // body mast.. (slight)
+  line(C,arms[0],arms[1],10,'#58a6ff');
+  line(C,arms[2],arms[3],10,'#8b949e');
+  const spin = (performance.now()/40)%Math.PI;
+  for(const [mx,my,mz,front] of arms){
+    const p = project(C, mx, my, mz);
+    if(!p) continue;
+    const R = cv.height*0.05*fpxDiv(p[2]);
+    const col = front ? 'rgba(63,185,80,.85)' : 'rgba(220,230,240,.55)';
+    ctx.strokeStyle=col; ctx.lineWidth=Math.max(1.5,cv.height*0.004*fpxDiv(p[2]));
+    ctx.beginPath();
+    const e = 0.28 + 0.72*Math.abs(Math.sin(spin + (front?0:1)));
+    ctx.ellipse(p[0],p[1],R,R*e,0,0,7); ctx.stroke();
+  }
+  // clearance ring (2 m safety)
+  const ring=[];
+  for(let a=0;a<=24;a++){ const th=a/24*2*Math.PI; ring.push([P.x+2*Math.cos(th),P.y+2*Math.sin(th),P.z-0.02]); }
+  for(let i=0;i<24;i++) line(C, ring[i], ring[i+1], 6, nearestClearance()<2 ? 'rgba(248,81,73,.9)' : 'rgba(88,166,255,.35)');
+}
+function fpxDiv(z){ return Math.min(3, 2.5/z); }
+
+// ------------------------------------------------------------ guardian link (server, real code)
+let lastSync = 0, state = null;
+async function sync(now){
+  if(now - lastSync < 200 || sync.busy) return;
+  lastSync = now; sync.busy = true;
+  try{
+    const spd = Math.hypot(P.vx,P.vy);
+    const cf = document.getElementById('aiv').checked ? 0.6 : 0.3;
+    P.cf = cf;
+    const r = await fetch('/api/state', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({throttle: mission ? P.thr : P.thr, cf, airborne: P.airborne})});
+    const d = await r.json();
+    state = d;
+    P.cap = d.throttle_cap;
+    updateHUD(d, spd, cf);
+  }catch(e){ /* keep flying, show in banner */ }
+  sync.busy = false;
+}
+
+function updateHUD(d, spd, cf){
+  const B = document.getElementById('banner');
+  B.textContent = d.alert;
+  B.className = 'hud card ' + (d.alert==='NOMINAL' ? 'nominal' : d.alert==='WARM' ? 'warm' : 'hot');
+  set('s-spd', spd.toFixed(1)); set('s-alt', P.z.toFixed(1));
+  set('s-pwr', d.power_w); set('s-bat', Math.round(d.battery_frac*100));
+  set('s-thr', Math.round(P.thr*100));
+  const clr = nearestClearance();
+  const c = document.getElementById('s-clr');
+  c.textContent = clr===Infinity ? '--' : clr.toFixed(1);
+  c.style.color = (clr!==Infinity && clr<2) ? '#f85149' : '#3fb950';
+  const top = {cpu:'cpu_npu', esc:'esc', motor:'motor', bat:'battery'};
+  for(const k in top){
+    const n = top[k], T = d.temps[n], L = d.limits[n];
+    const lo = 25, hi = Math.max(L+10, 95);
+    const frac = Math.max(0, Math.min(1, (T-lo)/(hi-lo)));
+    document.getElementById('t-'+k).style.width = (frac*100)+'%';
+    document.getElementById('v-'+k).textContent = T.toFixed(1);
+    document.getElementById('l-'+k).style.left = (((L-lo)/(hi-lo))*100)+'%';
+  }
+  document.getElementById('s-worst').textContent = d.worst_node + ' (' + d.margin_c + '°C هامش)';
+  document.getElementById('thrfill').style.height = (P.thr/1.2*100)+'%';
+  document.getElementById('cap').style.bottom = (P.cap/1.2*100)+'%';
+}
+const set = (id,v)=>document.getElementById(id).textContent=v;
+function toast(msg, ms=5000){
+  const t=document.getElementById('toast'); t.textContent=msg;
+  setTimeout(()=>{ if(t.textContent===msg) t.textContent=''; }, ms);
+}
+
+// ------------------------------------------------------------ mission controls
+document.getElementById('m-plan').onclick = async () => {
+  try{
+    const len = 60;
+    const r = await fetch(`/api/mission?route_len=${len}&battery_frac=${state?state.battery_frac:1}`);
+    const d = await r.json();
+    window.__plan = d;
+    const M = {ok:'✅ مقبولة اسمياً', mitigated:'🧊 بُرّدت (power '+d.power_frac+', compute '+d.compute_frac+')', rejected:'⛔ مرفوضة: '+d.reasons.join(',')}[d.decision];
+    toast(`مخطّط الحارس على ${len}m: ${M} — أعلى حرارة متوقعة ${d.max_temp_c}°C عند ${d.worst_node}`, 12000);
+    document.getElementById('m-fly').disabled = !d.feasible;
+  }catch(e){ toast('خطأ بالمهمة: '+e.message); }
+};
+document.getElementById('m-fly').onclick = () => {
+  const p = window.__plan;
+  if(!p || !p.feasible) return;
+  mission = {power_frac: p.power_frac, compute_frac: p.compute_frac,
+             len: p.route_len_m, tTotal: p.mission_time_s + 6,
+             t0: performance.now(), verdict: p.decision};
+  toast('🚀 المهمة تعمل بملف المخطّط: power_frac='+p.power_frac+' — الطيران الآلي حتى الهدف', 6000);
+};
+async function resetVehicle(ambient){
+  await fetch('/api/reset', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(ambient==null?{}:{ambient})});
+  Object.assign(P, {x:0,y:0,z:1.2,yaw:0,vx:0,vy:0,vz:0,pitch:0,roll:0,thr:0,cap:1});
+  mission = null; document.getElementById('m-fly').disabled = true;
+  toast('♻️ أُعيدت المركبة — الجو ' + (ambient ?? 25) + '°C، بطارية 100%');
+}
+document.getElementById('m-reset').onclick = () => resetVehicle(null);
+document.getElementById('m-hotday').onclick = () => resetVehicle(42);
+
+// ------------------------------------------------------------ main loop
+function loop(now){
+  const dt = Math.min(0.05, (now - tPrev)/1000); tPrev = now;
+  physics(dt);
+  draw();
+  sync(now);
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
