@@ -94,7 +94,7 @@ sensors → fusion EKF → controller → dynamics
 | High | Event-camera / RGB perception (second sensing path) | **✅ done (brief-34, simulated/estimated surrogate)** |
 | Medium | Onboard-vs-ground compute split | **✅ done (brief-35)** |
 | Medium | Thermal-aware trajectory (cool a hot route) | **✅ done (brief-36)** |
-| Medium | Dynamic link-aware rebalancing | **NEXT → priority #12** |
+| Medium | Dynamic link-aware rebalancing | **NEXT → priority #14** |
 | Medium | Motor/ESC/prop system model (thrust/power/temp) | RESEARCH |
 | Experimental | Neuromorphic SNN planner @ ~847 GOp/s/W class | LONG TERM |
 | Experimental | Swarm split-risk graph | LONG TERM |
@@ -141,7 +141,9 @@ sensors → fusion EKF → controller → dynamics
   3 form concepts scored 1–10 across 10 criteria with quadrant honesty tags
   (`docs/rescue-drone/`); technical seeds come from guardian modules
   (thermal model, edge split, replanner, event perception).
-- **G16 (next)**: dynamic link-aware rebalancing; then real GCS integration;
+- **G16**: precision humanitarian drop digital twin (`guardian/drop.py`) —
+  3 civil methods, Monte-Carlo CEP, no-drop-over-people guard (brief-37).
+- **G17 (next)**: dynamic link-aware rebalancing; then real GCS integration;
   then constraint-aware trajectory.
 
 ## 8. Engineering Decision Log (current entries)

@@ -259,7 +259,13 @@ the remote/attack surface is intentionally defensive only (no weapons/targeting)
     مسيّرة إغاثية ذكية (SAR + إسقاط مساعدات + شبكة طوارئ + سرب + توأم رقمي)،
     3 مفاهيم شكلية + مقارنة mCDA بالنقاط (اختيار جناح ثابت VTOL مختلط A 8.0)،
     كل الوسوم برباعية الصدق — `docs/rescue-drone/README.md`.
-18. **Next** dynamic link-aware rebalancing, then real GCS integration, then
+18. **Precision humanitarian drop (implemented).** `guardian/drop.py`
+    simulates the three civil drop methods (free/airbag, guided parachute,
+    winch) with a declared-constant Monte-Carlo digital twin and a hard
+    no-drop-over-people guard.  Demo `out/guardian/drop.csv`: CEP 0.9–2.4 m
+    in 2–10 m/s wind, winch-only inside the 5 m exclusion ring, whole-drop
+    rejection past the 12 m/s envelope (`docs/research-brief-37.md`).
+19. **Next** dynamic link-aware rebalancing, then real GCS integration, then
     constraint-aware trajectory.
 
 ---

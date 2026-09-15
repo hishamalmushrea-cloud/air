@@ -36,6 +36,8 @@ from .perception import (PerceptionConfig, EdgePerception, SpikeVision,
                          MultiSensorGuardian)
 from .edge_split import (ComputeTask, PlacementResult, SplitResult,
                          LinkEstimate, EdgeGroundSplit)
+from .drop import (DropConfig, DropVerdict, evaluate_method, plan_drop,
+                   cep50, p90, impact_samples, METHODS)
 
 __all__ = [
     "GuardianState",
@@ -85,4 +87,12 @@ __all__ = [
     "SplitResult",
     "LinkEstimate",
     "EdgeGroundSplit",
+    "DropConfig",
+    "DropVerdict",
+    "evaluate_method",
+    "plan_drop",
+    "cep50",
+    "p90",
+    "impact_samples",
+    "METHODS",
 ]

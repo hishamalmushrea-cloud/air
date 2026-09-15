@@ -483,6 +483,40 @@ class TestDynamicThermal(unittest.TestCase):
         self.assertIn("thermal_infeasible", res.reasons)
 
 
+class TestPrecisionDrop(unittest.TestCase):
+    def test_guided_parachute_improves_over_free_drop_in_gusts(self):
+        from airlab.guardian import evaluate_method
+        # at 25 m in 6 m/s wind, steering + aim-off keeps the chute inside
+        # the design-doc goal of <= 5 m CEP, and never worse than free drop
+        g = evaluate_method("guided_parachute", 25.0, 6.0, seed=5)
+        f = evaluate_method("free_drop", 25.0, 6.0, seed=5)
+        self.assertLess(g.cep_m, 5.0)
+        self.assertLess(g.p90_m, 5.0)
+        self.assertLessEqual(g.cep_m, f.cep_m + 0.5)
+
+    def test_winch_is_most_precise_and_slow(self):
+        from airlab.guardian import evaluate_method
+        w = evaluate_method("winch", 25.0, 6.0, seed=5)
+        f = evaluate_method("free_drop", 25.0, 6.0, seed=5)
+        self.assertLess(w.cep_m, 2.5)
+        self.assertGreater(w.descent_s, 5 * f.descent_s)
+
+    def test_no_drop_over_people_allows_only_winch(self):
+        from airlab.guardian import evaluate_method, plan_drop
+        v = plan_drop(25.0, 6.0, people_clearance_m=3.0, seed=5)
+        self.assertTrue(v.feasible)
+        self.assertEqual(v.method, "winch")
+        g = evaluate_method("guided_parachute", 25.0, 6.0, seed=5)
+        g.feasible = False  # the ballistic methods are blocked there
+        self.assertFalse(g.feasible)
+
+    def test_over_envelope_wind_rejects_everything(self):
+        from airlab.guardian import plan_drop
+        v = plan_drop(25.0, 15.0, people_clearance_m=99.0, seed=5)
+        self.assertFalse(v.feasible)
+        self.assertTrue(any("envelope" in r for r in v.reasons))
+
+
 class TestThermalBudget(unittest.TestCase):
     def test_planner_rejects_hot_route(self):
         from airlab.guardian import PredictiveRePlanner

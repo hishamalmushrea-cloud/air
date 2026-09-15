@@ -662,6 +662,43 @@ def main() -> int:
           f"max={edge_68.thermal_max_c:.1f}C worst={edge_68.thermal_worst_node} "
           f"reasons={edge_68.reasons}")
     print(f"[guardian] wrote out/guardian/thermal_trajectory.csv")
+
+    # ================================================================
+    # Precision humanitarian drop (priority #13, rescue-drone doc §05):
+    # digital-twin Monte-Carlo comparison of the three civil drop methods
+    # and the hard "never drop over people" guard.  Declared constants,
+    # simulated — no flight validation yet.
+    from airlab.guardian import evaluate_method, plan_drop, METHODS
+    rows_drop = []
+    for w in (2.0, 6.0, 10.0):
+        for m in METHODS:
+            v = evaluate_method(m, 25.0, w, seed=11)
+            rows_drop.append({
+                "scenario": f"h25_w{int(w)}", "method": m,
+                "cep_m": v.cep_m, "p90_m": v.p90_m,
+                "mean_drift_m": v.mean_drift_m, "descent_s": v.descent_s,
+                "feasible": int(v.feasible), "reasons": ""})
+    pv = plan_drop(25.0, 6.0, people_clearance_m=3.0, seed=11)
+    rows_drop.append({
+        "scenario": "people_at_3m", "method": pv.method,
+        "cep_m": pv.cep_m, "p90_m": pv.p90_m,
+        "mean_drift_m": pv.mean_drift_m, "descent_s": pv.descent_s,
+        "feasible": int(pv.feasible),
+        "reasons": "only winch allowed inside people-exclusion ring"})
+    wv = plan_drop(25.0, 15.0, people_clearance_m=99.0, seed=11)
+    rows_drop.append({
+        "scenario": "wind_15_over_envelope", "method": wv.method,
+        "cep_m": wv.cep_m, "p90_m": wv.p90_m,
+        "mean_drift_m": wv.mean_drift_m, "descent_s": wv.descent_s,
+        "feasible": int(wv.feasible), "reasons": ";".join(wv.reasons)})
+    _write("out/guardian/drop.csv", rows_drop)
+    for r in rows_drop[:3] + rows_drop[6:7] + rows_drop[9:]:
+        print(f"[guardian][drop] {r['scenario']:22s} {r['method']:17s} "
+              f"cep={r['cep_m']:>5}m feasible={bool(r['feasible'])} "
+              f"{r['reasons']}")
+    best6 = plan_drop(25.0, 6.0, people_clearance_m=99.0, seed=11)
+    print(f"[guardian][drop] chosen w6: {best6.method} cep={best6.cep_m}m")
+    print(f"[guardian] wrote out/guardian/drop.csv")
     return 0
 
 
